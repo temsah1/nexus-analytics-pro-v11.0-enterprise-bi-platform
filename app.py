@@ -836,7 +836,7 @@ def render_analytics_app():
             if margin: c3.metric("Profit Margin", f"{margin:.1f}%")
             date_col = st.session_state["col_map"].get("date","—")
             if date_col != "—" and date_col in df.columns:
-                df_ts = df.set_index(date_col).resample('M')[sales_col].sum().reset_index()
+                df_ts = df.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
                 fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales Trend", markers=True)
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
