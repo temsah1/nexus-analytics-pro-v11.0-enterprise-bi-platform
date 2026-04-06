@@ -429,7 +429,8 @@ def build_forecast_prophet(date_series, value_series, horizon=90, freq='M'):
         model.fit(ts)
 future = model.make_future_dataframe(periods=horizon, freq=freq_key)      
 forecast = model.predict(future)
-        forecast = forecast.tail(horizon) hist = ts.rename(columns={"ds":"Date","y":"Value"})
+forecast = forecast.tail(horizon)
+hist = ts.rename(columns={"ds":"Date","y":"Value"})
         fcast = pd.DataFrame({
             "Date": forecast["ds"],
             "Value": forecast["yhat"],
