@@ -427,9 +427,9 @@ def build_forecast_prophet(date_series, value_series, horizon=90, freq='M'):
     if PROPHET_AVAILABLE and len(ts) > 10:
         model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq=='W'), daily_seasonality=False)
         model.fit(ts)
-future = model.make_future_dataframe(periods=horizon, freq=freq_key)        forecast = model.predict(future)
-        forecast = forecast.tail(horizon)
-        hist = ts.rename(columns={"ds":"Date","y":"Value"})
+future = model.make_future_dataframe(periods=horizon, freq=freq_key)      
+forecast = model.predict(future)
+        forecast = forecast.tail(horizon) hist = ts.rename(columns={"ds":"Date","y":"Value"})
         fcast = pd.DataFrame({
             "Date": forecast["ds"],
             "Value": forecast["yhat"],
