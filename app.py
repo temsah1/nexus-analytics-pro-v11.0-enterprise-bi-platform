@@ -1,9 +1,4 @@
-"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║   NEXUS Analytics Pro v11.0 — Enterprise BI Platform                    ║
-║   Ultra Modern UI | 1GB Upload | Auto Encoding | Mega Admin Dashboard  ║
-╚══════════════════════════════════════════════════════════════════════════╝
-"""
+
 
 import warnings
 warnings.filterwarnings("ignore")
