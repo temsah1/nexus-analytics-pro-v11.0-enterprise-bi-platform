@@ -427,8 +427,7 @@ def build_forecast_prophet(date_series, value_series, horizon=90, freq='M'):
     if PROPHET_AVAILABLE and len(ts) > 10:
         model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq=='W'), daily_seasonality=False)
         model.fit(ts)
-        future = model.make_future_dataframe(periods=horizon, freq='ME' if freq in ['M', 'ME'] else 'WE')
-        forecast = model.predict(future)
+future = model.make_future_dataframe(periods=horizon, freq=freq_key)        forecast = model.predict(future)
         forecast = forecast.tail(horizon)
         hist = ts.rename(columns={"ds":"Date","y":"Value"})
         fcast = pd.DataFrame({
@@ -851,7 +850,7 @@ def render_analytics_app():
         if sales_col != "—" and date_col != "—":
             horizon = st.slider("Forecast Horizon (days)", 30, 180, 90, key="fc_horizon")
             freq = st.selectbox("Aggregation", ["Monthly", "Weekly"], index=0, key="fc_freq")
-            freq_key = 'M' if freq == "Monthly" else 'W'
+freq_key = 'ME' if freq == "Monthly" else 'W'
             if st.button("Run Forecast", key="fc_run"):
                 with st.spinner("Building forecast model..."):
                     result = build_forecast_prophet(df[date_col], df[sales_col], horizon, freq_key)
