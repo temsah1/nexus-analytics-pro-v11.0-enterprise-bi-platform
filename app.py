@@ -7,6 +7,7 @@ import hashlib
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -105,13 +106,60 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Subscription plans table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS subscription_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            price_monthly REAL,
+            price_yearly REAL,
+            max_rows INTEGER,
+            features TEXT,
+            is_active INTEGER DEFAULT 1
+        )
+    ''')
+    
+    # User subscriptions table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS user_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan_id INTEGER NOT NULL,
+            start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            end_date TIMESTAMP,
+            is_active INTEGER DEFAULT 1,
+            payment_method TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (plan_id) REFERENCES subscription_plans(id)
+        )
+    ''')
+    
+    # Insert default plans if not exist
+    c.execute("SELECT COUNT(*) FROM subscription_plans")
+    if c.fetchone()[0] == 0:
+        plans = [
+            ("Free", 0, 0, 1000, "Basic analytics, limited rows, no export, no forecasting, no market basket, no clustering", 1),
+            ("Pro", 19.99, 199.99, 50000, "Full analytics, forecasting, market basket, clustering, export, priority support", 1),
+            ("Enterprise", 49.99, 499.99, 999999999, "Unlimited rows, all Pro features + custom models, dedicated support, API access", 1)
+        ]
+        c.executemany("INSERT INTO subscription_plans (name, price_monthly, price_yearly, max_rows, features, is_active) VALUES (?,?,?,?,?,?)", plans)
+    
+    conn.commit()
+    
+    # Create admin user (kareemeltemsah7@gmail.com / temsah1!)
     admin_email = "kareemeltemsah7@gmail.com"
-    admin_pass = "temsah1"
+    admin_pass = "temsah1!"
     hashed = hashlib.sha256(admin_pass.encode()).hexdigest()
     c.execute("SELECT id FROM users WHERE email = ?", (admin_email,))
-    if not c.fetchone():
+    existing = c.fetchone()
+    if existing:
+        # Update password in case it changed
+        c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (hashed, admin_email))
+    else:
         c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)",
                   (admin_email, hashed))
+    
     conn.commit()
     conn.close()
 
@@ -147,6 +195,12 @@ def register_user(email, pwd, is_admin=False):
             c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)",
                       (email, hash_password(pwd), 1 if is_admin else 0))
             conn.commit()
+            # Assign free plan to new user
+            c.execute("SELECT id FROM subscription_plans WHERE name = 'Free'")
+            free_plan = c.fetchone()
+            if free_plan:
+                c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 1)",
+                          (c.lastrowid, free_plan["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
             return True
         except sqlite3.IntegrityError:
             return False
@@ -177,6 +231,7 @@ def delete_user(user_id):
         row = c.fetchone()
         if row:
             log_system_action("system", "delete_user", f"Deleted user {row['email']} (ID: {user_id})")
+        c.execute("DELETE FROM user_subscriptions WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
 
@@ -256,6 +311,101 @@ def get_stats():
             "today_logins": today_logins,
             "today_attempts": today_attempts,
         }
+
+# ======================== SUBSCRIPTION HELPERS ========================
+def get_available_plans():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id, name, price_monthly, price_yearly, max_rows, features FROM subscription_plans WHERE is_active = 1 ORDER BY price_monthly")
+        return c.fetchall()
+
+def get_user_subscription(user_id):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT sp.name, sp.max_rows, sp.features, us.start_date, us.end_date, us.is_active, sp.id as plan_id
+            FROM user_subscriptions us
+            JOIN subscription_plans sp ON us.plan_id = sp.id
+            WHERE us.user_id = ? AND us.is_active = 1
+            ORDER BY us.start_date DESC LIMIT 1
+        ''', (user_id,))
+        row = c.fetchone()
+        if row:
+            return dict(row)
+        else:
+            # assign free plan by default
+            c.execute("SELECT id, name, max_rows, features FROM subscription_plans WHERE name = 'Free'")
+            free = c.fetchone()
+            if free:
+                c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 1)",
+                          (user_id, free["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
+                return {"name": free["name"], "max_rows": free["max_rows"], "features": free["features"], "plan_id": free["id"]}
+            return None
+
+def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="manual"):
+    with get_db() as conn:
+        c = conn.cursor()
+        # Deactivate old subscriptions
+        c.execute("UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+        start = datetime.now()
+        end = start + timedelta(days=30*duration_months)
+        c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active, payment_method) VALUES (?, ?, ?, ?, 1, ?)",
+                  (user_id, plan_id, start, end, payment_method))
+        conn.commit()
+        log_system_action("system", "subscription_upgrade", f"User {user_id} upgraded to plan {plan_id} for {duration_months} months")
+        return True
+
+def get_all_subscriptions():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT u.id as user_id, u.email, sp.name as plan_name, us.start_date, us.end_date, us.is_active
+            FROM user_subscriptions us
+            JOIN users u ON us.user_id = u.id
+            JOIN subscription_plans sp ON us.plan_id = sp.id
+            ORDER BY us.start_date DESC
+        ''')
+        return c.fetchall()
+
+def get_subscription_stats():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT sp.name, COUNT(us.id) as user_count
+            FROM user_subscriptions us
+            JOIN subscription_plans sp ON us.plan_id = sp.id
+            WHERE us.is_active = 1
+            GROUP BY sp.name
+        ''')
+        plan_counts = {row["name"]: row["user_count"] for row in c.fetchall()}
+        # revenue simulation (monthly)
+        c.execute("SELECT SUM(sp.price_monthly) FROM user_subscriptions us JOIN subscription_plans sp ON us.plan_id = sp.id WHERE us.is_active = 1")
+        monthly_revenue = c.fetchone()[0] or 0
+        return plan_counts, monthly_revenue
+
+def cancel_subscription(user_id):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ? AND is_active = 1", (user_id,))
+        # assign free plan
+        c.execute("SELECT id FROM subscription_plans WHERE name = 'Free'")
+        free_plan = c.fetchone()
+        if free_plan:
+            c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 1)",
+                      (user_id, free_plan["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
+        conn.commit()
+
+def extend_subscription(user_id, extra_months=1):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT end_date FROM user_subscriptions WHERE user_id = ? AND is_active = 1", (user_id,))
+        row = c.fetchone()
+        if row:
+            new_end = datetime.strptime(row["end_date"], "%Y-%m-%d %H:%M:%S") + timedelta(days=30*extra_months)
+            c.execute("UPDATE user_subscriptions SET end_date = ? WHERE user_id = ? AND is_active = 1", (new_end, user_id))
+            conn.commit()
+            return True
+        return False
 
 # ========================== PAGE CONFIG ==========================
 st.set_page_config(
@@ -743,6 +893,7 @@ def mega_admin_dashboard():
         "📊 Dashboard Overview",
         "👤 User Management",
         "📋 Activity Logs",
+        "📋 Subscription Management",
         "⚙️ System Settings",
         "📈 Platform Analytics"
     ])
@@ -983,8 +1134,61 @@ def mega_admin_dashboard():
             else:
                 st.info("No system logs yet.")
 
-    # ---- TAB 3: SYSTEM SETTINGS ----
+    # ---- TAB 3: SUBSCRIPTION MANAGEMENT ----
     with admin_tabs[3]:
+        sec_header("SUBSCRIPTIONS", "Manage User Plans", "Upgrade, downgrade, extend")
+
+        subs = get_all_subscriptions()
+        if subs:
+            df_subs = pd.DataFrame(subs)
+            df_subs["start_date"] = pd.to_datetime(df_subs["start_date"]).dt.strftime("%Y-%m-%d")
+            df_subs["end_date"] = pd.to_datetime(df_subs["end_date"]).dt.strftime("%Y-%m-%d")
+            st.dataframe(df_subs, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### ✨ Manual Subscription Actions")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            user_id_upgrade = st.number_input("User ID", min_value=1, step=1, key="sub_user_id")
+            plans = get_available_plans()
+            plan_options = {p["name"]: p["id"] for p in plans}
+            plan_name = st.selectbox("Select Plan", list(plan_options.keys()), key="sub_plan")
+            duration = st.selectbox("Duration", [1, 3, 6, 12], index=0, key="sub_duration")
+            if st.button("Upgrade / Assign Plan", key="sub_upgrade_btn"):
+                if upgrade_subscription(user_id_upgrade, plan_options[plan_name], duration_months=duration, payment_method="admin_manual"):
+                    st.success(f"User {user_id_upgrade} upgraded to {plan_name} for {duration} months.")
+                    st.rerun()
+                else:
+                    st.error("Failed to upgrade.")
+        with col2:
+            user_id_extend = st.number_input("User ID to extend", min_value=1, step=1, key="extend_user_id")
+            extra_months = st.number_input("Extra months", min_value=1, max_value=12, value=1, key="extra_months")
+            if st.button("Extend Subscription", key="extend_btn"):
+                if extend_subscription(user_id_extend, extra_months):
+                    st.success(f"Subscription extended by {extra_months} months.")
+                    st.rerun()
+                else:
+                    st.error("Failed to extend. User may have no active subscription.")
+            if st.button("Cancel Subscription (Revert to Free)", key="cancel_sub_btn"):
+                cancel_subscription(user_id_extend)
+                st.success(f"Subscription cancelled for user {user_id_extend}, reverted to Free plan.")
+                st.rerun()
+
+        # Stats
+        plan_counts, monthly_revenue = get_subscription_stats()
+        st.markdown("---")
+        st.markdown("#### 📊 Subscription Revenue & Distribution")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("💰 Monthly Recurring Revenue (MRR)", f"${monthly_revenue:,.2f}")
+        with col2:
+            st.write("**Plan Distribution**")
+            for plan, cnt in plan_counts.items():
+                st.write(f"- {plan}: {cnt} users")
+
+    # ---- TAB 4: SYSTEM SETTINGS ----
+    with admin_tabs[4]:
         sec_header("SETTINGS", "System Configuration", "Platform controls")
 
         col1, col2 = st.columns(2)
@@ -1028,8 +1232,8 @@ def mega_admin_dashboard():
         col2.metric("Total Users", stats["total_users"])
         col3.metric("Total Log Entries", stats["total_actions"])
 
-    # ---- TAB 4: PLATFORM ANALYTICS ----
-    with admin_tabs[4]:
+    # ---- TAB 5: PLATFORM ANALYTICS ----
+    with admin_tabs[5]:
         sec_header("ANALYTICS", "Platform Usage Analytics", "Behavior & engagement insights")
 
         sys_logs = get_system_logs(limit=500)
@@ -1072,6 +1276,52 @@ def mega_admin_dashboard():
         else:
             st.info("No platform analytics data yet.")
 
+# ========================== SUBSCRIPTION PLANS TAB ==========================
+def subscription_plans_tab():
+    sec_header("PLANS", "Choose Your Plan", "Upgrade for full features")
+    
+    if not st.session_state.get("logged_in", False):
+        st.info("Please login to view and subscribe to plans.")
+        return
+    
+    user_email = st.session_state["user_email"]
+    user = get_user_by_email(user_email)
+    if not user:
+        st.error("User not found.")
+        return
+    
+    current_sub = get_user_subscription(user["id"])
+    if current_sub:
+        st.info(f"**Current Plan:** {current_sub['name']} | Max rows: {current_sub['max_rows']:,} | Features: {current_sub['features']}")
+    
+    plans = get_available_plans()
+    cols = st.columns(len(plans))
+    for idx, plan in enumerate(plans):
+        with cols[idx]:
+            st.markdown(f"""
+            <div style="background: white; border-radius: 20px; padding: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
+                <h3 style="margin-bottom: 0.5rem;">{plan['name']}</h3>
+                <p style="font-size: 1.8rem; font-weight: 800; color: #8b5cf6;">${plan['price_monthly']:.2f}<span style="font-size: 1rem;">/month</span></p>
+                <p style="font-size: 0.9rem; color: #64748b;">or ${plan['price_yearly']:.2f}/year</p>
+                <hr>
+                <p>📊 Max rows: {plan['max_rows']:,}</p>
+                <p>✨ Features: {plan['features'][:100]}...</p>
+            </div>
+            """, unsafe_allow_html=True)
+            if plan['name'] != current_sub['name']:
+                if st.button(f"Subscribe to {plan['name']}", key=f"sub_{plan['id']}"):
+                    # Simulate payment
+                    with st.spinner("Redirecting to payment gateway..."):
+                        # In real app, integrate Stripe/PayPal. Here we simulate success.
+                        success = upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated")
+                        if success:
+                            st.success(f"Successfully upgraded to {plan['name']}! Refresh to see changes.")
+                            st.rerun()
+                        else:
+                            st.error("Upgrade failed.")
+            else:
+                st.button(f"Current Plan", disabled=True)
+
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
     if "df" not in st.session_state:
@@ -1080,12 +1330,21 @@ def render_analytics_app():
         st.session_state["source"] = None
         st.session_state["col_map"] = {}
 
+    # Check subscription for row limit
+    user_plan = None
+    if st.session_state.get("logged_in", False):
+        user = get_user_by_email(st.session_state["user_email"])
+        if user:
+            user_plan = get_user_subscription(user["id"])
+    
     with st.sidebar:
         st.markdown("## 🚀 NEXUS Analytics")
         if st.session_state.get("logged_in", False):
             st.markdown(f"👤 **{st.session_state['user_email']}**")
+            if user_plan:
+                st.caption(f"📋 Plan: {user_plan['name']} (Max rows: {user_plan['max_rows']:,})")
         else:
-            st.markdown("👤 **Guest Mode**")
+            st.markdown("👤 **Guest Mode** (Limited)")
         st.markdown("---")
         st.markdown("### 📂 Data Source")
         source = st.radio(
@@ -1119,18 +1378,22 @@ def render_analytics_app():
                         else:
                             df_new = pd.read_excel(uploaded)
                         progress_bar.progress(100, text="Complete!")
-                        if st.session_state["source"] != uploaded.name:
-                            st.session_state["df_raw"] = df_new
-                            st.session_state["roles"] = detect_column_types(df_new)
-                            st.session_state["df"] = smart_clean(df_new, st.session_state["roles"])
-                            st.session_state["source"] = uploaded.name
-                            st.session_state["col_map"] = {}
-                            log_system_action(
-                                st.session_state.get("user_email", "guest"),
-                                "upload_file",
-                                f"Uploaded {uploaded.name} ({uploaded.size / (1024 * 1024):.2f} MB)"
-                            )
-                        st.success(f"✓ {uploaded.name}")
+                        # Check row limit
+                        if user_plan and len(df_new) > user_plan['max_rows']:
+                            st.error(f"❌ Dataset has {len(df_new):,} rows, but your plan ({user_plan['name']}) allows only {user_plan['max_rows']:,} rows. Please upgrade or use a smaller file.")
+                        else:
+                            if st.session_state["source"] != uploaded.name:
+                                st.session_state["df_raw"] = df_new
+                                st.session_state["roles"] = detect_column_types(df_new)
+                                st.session_state["df"] = smart_clean(df_new, st.session_state["roles"])
+                                st.session_state["source"] = uploaded.name
+                                st.session_state["col_map"] = {}
+                                log_system_action(
+                                    st.session_state.get("user_email", "guest"),
+                                    "upload_file",
+                                    f"Uploaded {uploaded.name} ({uploaded.size / (1024 * 1024):.2f} MB)"
+                                )
+                            st.success(f"✓ {uploaded.name}")
                     except Exception as e:
                         st.error(f"Error loading file: {e}")
                     finally:
@@ -1138,13 +1401,17 @@ def render_analytics_app():
         else:
             if st.session_state["source"] != "builtin":
                 df_bi = load_builtin_dataset()
-                st.session_state["df_raw"] = df_bi
-                st.session_state["roles"] = detect_column_types(df_bi)
-                st.session_state["df"] = smart_clean(df_bi, st.session_state["roles"])
-                st.session_state["source"] = "builtin"
-                st.session_state["col_map"] = {}
-                log_system_action(st.session_state.get("user_email", "guest"), "load_builtin", "Loaded built-in dataset")
-            st.success("✓ Built-in dataset ready")
+                # Built-in dataset has 5000 rows, check limit
+                if user_plan and len(df_bi) > user_plan['max_rows']:
+                    st.error(f"❌ Built-in dataset has {len(df_bi):,} rows, but your plan ({user_plan['name']}) allows only {user_plan['max_rows']:,} rows. Please upgrade.")
+                else:
+                    st.session_state["df_raw"] = df_bi
+                    st.session_state["roles"] = detect_column_types(df_bi)
+                    st.session_state["df"] = smart_clean(df_bi, st.session_state["roles"])
+                    st.session_state["source"] = "builtin"
+                    st.session_state["col_map"] = {}
+                    log_system_action(st.session_state.get("user_email", "guest"), "load_builtin", "Loaded built-in dataset")
+                st.success("✓ Built-in dataset ready")
 
         df = st.session_state.get("df")
         if df is not None:
@@ -1173,9 +1440,17 @@ def render_analytics_app():
         st.info("👈 Please load data from the sidebar to get started.")
         return
 
+    # Define feature access based on plan
+    is_pro_or_enterprise = False
+    if user_plan and user_plan['name'] in ['Pro', 'Enterprise']:
+        is_pro_or_enterprise = True
+    elif not st.session_state.get("logged_in", False):
+        # Guest mode: limited features
+        is_pro_or_enterprise = False
+
     tabs = st.tabs([
         "📊 Data Hub", "💰 KPIs", "🔮 Forecasting", "🤖 Profit Optimizer",
-        "👥 Segmentation", "🛒 Market Basket", "📈 Advanced Analytics", "📄 Executive Report"
+        "👥 Segmentation", "🛒 Market Basket", "📈 Advanced Analytics", "📄 Executive Report", "💎 Subscription Plans"
     ])
 
     # ---------- TAB 0: DATA HUB ----------
@@ -1247,60 +1522,63 @@ def render_analytics_app():
     # ---------- TAB 2: FORECASTING ----------
     with tabs[2]:
         sec_header("02", "Demand Forecasting", "AI-powered time series prediction")
-        sales_col = st.session_state["col_map"].get("sales", "—")
-        date_col = st.session_state["col_map"].get("date", "—")
-
-        if sales_col != "—" and date_col != "—" and sales_col in df.columns and date_col in df.columns:
-            col1, col2 = st.columns(2)
-            with col1:
-                horizon = st.slider("Forecast Horizon (periods)", 3, 36, 12, key="fc_horizon")
-            with col2:
-                freq_label = st.selectbox("Aggregation", ["Monthly", "Weekly"], index=0, key="fc_freq")
-            freq_key = 'ME' if freq_label == "Monthly" else 'W'
-
-            if st.button("🔮 Run Forecast", key="fc_run"):
-                with st.spinner("Building forecast model..."):
-                    try:
-                        date_json = df[date_col].astype(str).to_json()
-                        val_json = df[sales_col].to_json()
-                        hist, fcast, model_name = build_forecast(date_json, val_json, horizon, freq_key)
-                        if hist is None:
-                            st.error("❌ Failed to build forecast. Install statsmodels or prophet.")
-                        else:
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=hist["Date"], y=hist["Value"], name="Historical",
-                                line=dict(color="#06b6d4", width=2.5)
-                            ))
-                            fig.add_trace(go.Scatter(
-                                x=fcast["Date"], y=fcast["Upper"],
-                                fill=None, line=dict(color="rgba(139,92,246,0)"), showlegend=False
-                            ))
-                            fig.add_trace(go.Scatter(
-                                x=fcast["Date"], y=fcast["Lower"],
-                                fill="tonexty", name="Confidence Band",
-                                fillcolor="rgba(139,92,246,0.15)",
-                                line=dict(color="rgba(139,92,246,0)")
-                            ))
-                            fig.add_trace(go.Scatter(
-                                x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})",
-                                line=dict(color="#f59e0b", dash="dash", width=2.5)
-                            ))
-                            fig.update_layout(
-                                title=f"📈 Demand Forecast — {model_name}",
-                                height=500, template="plotly_white",
-                                plot_bgcolor='rgba(0,0,0,0)'
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                            st.dataframe(fcast.round(2), use_container_width=True)
-                            log_system_action(
-                                st.session_state.get("user_email", "guest"),
-                                "forecast", f"Ran {freq_label} forecast, horizon={horizon}"
-                            )
-                    except Exception as e:
-                        st.error(f"Forecast error: {e}")
+        if not is_pro_or_enterprise:
+            st.warning("🔒 Forecasting is available in Pro and Enterprise plans only. Please upgrade to access.")
         else:
-            st.info("👈 Map both Sales and Date columns in the sidebar.")
+            sales_col = st.session_state["col_map"].get("sales", "—")
+            date_col = st.session_state["col_map"].get("date", "—")
+
+            if sales_col != "—" and date_col != "—" and sales_col in df.columns and date_col in df.columns:
+                col1, col2 = st.columns(2)
+                with col1:
+                    horizon = st.slider("Forecast Horizon (periods)", 3, 36, 12, key="fc_horizon")
+                with col2:
+                    freq_label = st.selectbox("Aggregation", ["Monthly", "Weekly"], index=0, key="fc_freq")
+                freq_key = 'ME' if freq_label == "Monthly" else 'W'
+
+                if st.button("🔮 Run Forecast", key="fc_run"):
+                    with st.spinner("Building forecast model..."):
+                        try:
+                            date_json = df[date_col].astype(str).to_json()
+                            val_json = df[sales_col].to_json()
+                            hist, fcast, model_name = build_forecast(date_json, val_json, horizon, freq_key)
+                            if hist is None:
+                                st.error("❌ Failed to build forecast. Install statsmodels or prophet.")
+                            else:
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(
+                                    x=hist["Date"], y=hist["Value"], name="Historical",
+                                    line=dict(color="#06b6d4", width=2.5)
+                                ))
+                                fig.add_trace(go.Scatter(
+                                    x=fcast["Date"], y=fcast["Upper"],
+                                    fill=None, line=dict(color="rgba(139,92,246,0)"), showlegend=False
+                                ))
+                                fig.add_trace(go.Scatter(
+                                    x=fcast["Date"], y=fcast["Lower"],
+                                    fill="tonexty", name="Confidence Band",
+                                    fillcolor="rgba(139,92,246,0.15)",
+                                    line=dict(color="rgba(139,92,246,0)")
+                                ))
+                                fig.add_trace(go.Scatter(
+                                    x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})",
+                                    line=dict(color="#f59e0b", dash="dash", width=2.5)
+                                ))
+                                fig.update_layout(
+                                    title=f"📈 Demand Forecast — {model_name}",
+                                    height=500, template="plotly_white",
+                                    plot_bgcolor='rgba(0,0,0,0)'
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                                st.dataframe(fcast.round(2), use_container_width=True)
+                                log_system_action(
+                                    st.session_state.get("user_email", "guest"),
+                                    "forecast", f"Ran {freq_label} forecast, horizon={horizon}"
+                                )
+                        except Exception as e:
+                            st.error(f"Forecast error: {e}")
+            else:
+                st.info("👈 Map both Sales and Date columns in the sidebar.")
 
     # ---------- TAB 3: PROFIT OPTIMIZER ----------
     with tabs[3]:
@@ -1356,6 +1634,8 @@ def render_analytics_app():
     # ---------- TAB 4: SEGMENTATION ----------
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM Analysis & Clustering")
+        if not is_pro_or_enterprise:
+            st.warning("🔒 Customer Segmentation (clustering) is available in Pro and Enterprise plans only. RFM is free.")
         cust_col = st.session_state["col_map"].get("customer", "—")
         sales_col = st.session_state["col_map"].get("sales", "—")
         date_col = st.session_state["col_map"].get("date", "—")
@@ -1391,58 +1671,63 @@ def render_analytics_app():
                 st.info("👈 Map Customer ID, Sales, and Date columns.")
 
         with seg_tab2:
-            num_cols = df.select_dtypes(include=np.number).columns.tolist()
-            if len(num_cols) >= 2:
-                method = st.selectbox("Clustering Method", ["kmeans", "dbscan", "hierarchical"], key="clust_method")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if method in ['kmeans', 'hierarchical']:
-                        k = st.slider("Number of clusters", 2, 8, 3, key="k_clust")
-                    else:
-                        eps = st.slider("Epsilon (DBSCAN)", 0.1, 2.0, 0.5, 0.05, key="db_eps")
-                        k = 3
-                with col2:
-                    feat_clust = st.multiselect("Features", num_cols, default=num_cols[:min(3, len(num_cols))], key="clust_feat")
-
-                if feat_clust and st.button("🔵 Run Clustering", key="clust_run"):
-                    try:
-                        eps_val = eps if method == 'dbscan' else 0.5
-                        labels, sil, coords, inertias, var, model = run_advanced_clustering(
-                            df[feat_clust].dropna().to_json(), feat_clust, method=method,
-                            n_clusters=k, eps=eps_val
-                        )
-                        if labels is not None:
-                            if sil:
-                                st.metric("Silhouette Score", f"{sil:.3f}")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                fig = px.scatter(
-                                    x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
-                                    title=f"PCA Projection — {method.upper()}",
-                                    labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"}
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                            with col2:
-                                if inertias:
-                                    fig2 = px.line(
-                                        x=list(inertias.keys()), y=list(inertias.values()),
-                                        markers=True, title="📐 Elbow Method",
-                                        labels={"x": "K", "y": "Inertia"}
-                                    )
-                                    st.plotly_chart(fig2, use_container_width=True)
-                            log_system_action(
-                                st.session_state.get("user_email", "guest"),
-                                "clustering", f"Ran {method} clustering"
-                            )
-                    except Exception as e:
-                        st.error(f"Clustering error: {e}")
+            if not is_pro_or_enterprise:
+                st.info("Clustering is a Pro/Enterprise feature. Upgrade to unlock.")
             else:
-                st.info("Need at least 2 numeric columns for clustering.")
+                num_cols = df.select_dtypes(include=np.number).columns.tolist()
+                if len(num_cols) >= 2:
+                    method = st.selectbox("Clustering Method", ["kmeans", "dbscan", "hierarchical"], key="clust_method")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if method in ['kmeans', 'hierarchical']:
+                            k = st.slider("Number of clusters", 2, 8, 3, key="k_clust")
+                        else:
+                            eps = st.slider("Epsilon (DBSCAN)", 0.1, 2.0, 0.5, 0.05, key="db_eps")
+                            k = 3
+                    with col2:
+                        feat_clust = st.multiselect("Features", num_cols, default=num_cols[:min(3, len(num_cols))], key="clust_feat")
+
+                    if feat_clust and st.button("🔵 Run Clustering", key="clust_run"):
+                        try:
+                            eps_val = eps if method == 'dbscan' else 0.5
+                            labels, sil, coords, inertias, var, model = run_advanced_clustering(
+                                df[feat_clust].dropna().to_json(), feat_clust, method=method,
+                                n_clusters=k, eps=eps_val
+                            )
+                            if labels is not None:
+                                if sil:
+                                    st.metric("Silhouette Score", f"{sil:.3f}")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    fig = px.scatter(
+                                        x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
+                                        title=f"PCA Projection — {method.upper()}",
+                                        labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"}
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                with col2:
+                                    if inertias:
+                                        fig2 = px.line(
+                                            x=list(inertias.keys()), y=list(inertias.values()),
+                                            markers=True, title="📐 Elbow Method",
+                                            labels={"x": "K", "y": "Inertia"}
+                                        )
+                                        st.plotly_chart(fig2, use_container_width=True)
+                                log_system_action(
+                                    st.session_state.get("user_email", "guest"),
+                                    "clustering", f"Ran {method} clustering"
+                                )
+                        except Exception as e:
+                            st.error(f"Clustering error: {e}")
+                else:
+                    st.info("Need at least 2 numeric columns for clustering.")
 
     # ---------- TAB 5: MARKET BASKET ----------
     with tabs[5]:
         sec_header("05", "Market Basket Analysis", "Apriori — Association Rules")
-        if not MLXTEND_AVAILABLE:
+        if not is_pro_or_enterprise:
+            st.warning("🔒 Market Basket Analysis is available in Pro and Enterprise plans only. Upgrade to access.")
+        elif not MLXTEND_AVAILABLE:
             st.warning("⚠️ Install mlxtend: `pip install mlxtend`")
         else:
             cust_col = st.session_state["col_map"].get("customer", "—")
@@ -1486,7 +1771,6 @@ def render_analytics_app():
     # ---------- TAB 6: ADVANCED ANALYTICS ----------
     with tabs[6]:
         sec_header("06", "Advanced Analytics", "Anomaly Detection & Deep Insights")
-
         adv_tab1, adv_tab2, adv_tab3 = st.tabs(["🔗 Correlations", "🚨 Anomaly Detection", "🔍 Data Explorer"])
 
         with adv_tab1:
@@ -1653,6 +1937,10 @@ def render_analytics_app():
                 st.session_state.get("user_email", "guest"),
                 "generate_report", "Executive report generated"
             )
+
+    # ---------- TAB 8: SUBSCRIPTION PLANS ----------
+    with tabs[8]:
+        subscription_plans_tab()
 
 # ========================== MAIN ==========================
 def main():
