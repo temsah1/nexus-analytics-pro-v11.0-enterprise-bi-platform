@@ -1811,8 +1811,8 @@ def render_analytics_app():
             """, unsafe_allow_html=True)
 
         # DATA SOURCE as expander (arrow)
-        # with st.expander("📂 DATA SOURCE", expanded=True):
-        #     source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
+        with st.expander("📂 DATA SOURCE", expanded=True):
+            source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
 
         if source == "📂 Upload File":
             uploaded = st.file_uploader(f"CSV / Excel / JSON", type=["csv","xlsx","xls","json"], key="file_upload")
