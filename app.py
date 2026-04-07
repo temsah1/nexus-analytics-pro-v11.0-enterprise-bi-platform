@@ -51,8 +51,8 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 # ========================== CONFIGURATION ==========================
-MAX_FILE_SIZE_MB = 1000
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_FILE_SIZE_MB = 5000
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024 * 5
 GUEST_MAX_ROWS = 1000
 
 CONFIG_DIR = Path(".streamlit")
@@ -604,7 +604,7 @@ custom_dark_template = go.layout.Template(
 def apply_plot_style(fig):
     fig.update_layout(template=custom_dark_template)
     # إضافة شبكة خفيفة
-    fig.update_xaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+   fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#334155')
     fig.update_yaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
     return fig
 
@@ -1169,7 +1169,7 @@ def login_section():
                     log_system_action(new_email, "register", "New user registered")
                 else:
                     st.error("⚠️ Email already exists.")
-        st.sidebar.info("💡 Guest mode: limited features (max 1000 rows).")
+        st.sidebar.info("💡 Guest mode: limited features (max 5000 rows).")
         return False
 
 # ========================== CHATBOT TAB ==========================
@@ -1442,7 +1442,7 @@ def mega_admin_dashboard():
             with st.expander(f"✏️ Edit {plan['name']}"):
                 new_price_m = st.number_input(f"Monthly Price (${plan['name']})", value=float(plan['price_monthly']), step=1.0, key=f"pm_{plan['id']}")
                 new_price_y = st.number_input(f"Yearly Price (${plan['name']})", value=float(plan['price_yearly']), step=10.0, key=f"py_{plan['id']}")
-                new_rows = st.number_input(f"Max Rows", value=int(plan['max_rows']), step=1000, key=f"rows_{plan['id']}")
+                new_rows = st.number_input(f"Max Rows", value=int(plan['max_rows']), step=5000, key=f"rows_{plan['id']}")
                 new_feat = st.text_area(f"Features", value=plan['features'], height=100, key=f"feat_{plan['id']}")
                 if st.button(f"Update {plan['name']}", key=f"upd_{plan['id']}"):
                     update_plan(plan['id'], new_price_m, new_price_y, new_rows, new_feat)
@@ -1609,7 +1609,7 @@ def render_analytics_app():
             if user_plan:
                 st.caption(f"📋 Plan: {user_plan['name']} (Max rows: {user_plan['max_rows']:,})")
             else:
-                st.caption("📋 Plan: Free (Max rows: 1000)")
+                st.caption("📋 Plan: Free (Max rows: 5000)")
         else:
             st.markdown("👤 **Guest Mode** (Limited to 1000 rows)")
         st.markdown("---")
