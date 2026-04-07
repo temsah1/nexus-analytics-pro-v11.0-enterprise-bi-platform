@@ -30,7 +30,6 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, mean_absolute_percentage_error
 from sklearn.inspection import permutation_importance
 
-# Optional libraries
 try:
     from mlxtend.frequent_patterns import apriori, association_rules
     MLXTEND_AVAILABLE = True
@@ -65,30 +64,73 @@ if not CONFIG_FILE.exists():
 maxUploadSize = {MAX_FILE_SIZE_MB}
 """)
 
-# ========================== ENCODING HELPER ==========================
+# ========================== FIX #1: ENHANCED ENCODING & DATE DETECTION ==========================
 def read_csv_with_encoding(uploaded_file):
-    encodings = ['utf-8', 'windows-1256', 'iso-8859-1', 'cp1252', 'latin1']
+    """
+    قراءة ملفات CSV مع دعم كامل للترميزات المختلفة واكتشاف التواريخ تلقائياً
+    """
+    encodings = ['utf-8', 'windows-1256', 'iso-8859-6', 'iso-8859-1', 'cp1252', 'latin1', 'utf-8-sig']
+    
+    # أنماط التواريخ الشائعة للكشف
+    DATE_FORMATS = [
+        '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
+        '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
+        '%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y',
+        '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S', '%m/%d/%Y %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ',
+        '%d-%b-%Y', '%d-%B-%Y',
+    ]
+    
+    def try_parse_date_column(series):
+        """محاولة تحويل عمود إلى تاريخ بأمان"""
+        if series.dtype != 'object':
+            return None
+        
+        sample = series.dropna().head(50)
+        if len(sample) == 0:
+            return None
+        
+        # تجربة كل صيغة تاريخ
+        for fmt in DATE_FORMATS:
+            try:
+                parsed = pd.to_datetime(sample, format=fmt, errors='raise')
+                # إذا نجح مع أكثر من 80% من العينة
+                full_parsed = pd.to_datetime(series, format=fmt, errors='coerce')
+                success_rate = full_parsed.notna().mean()
+                if success_rate > 0.7:
+                    return full_parsed
+            except (ValueError, TypeError):
+                continue
+        
+        # محاولة التحليل التلقائي مع داتبارسر
+        try:
+            full_parsed = pd.to_datetime(series, infer_datetime_format=True, errors='coerce')
+            success_rate = full_parsed.notna().mean()
+            if success_rate > 0.7:
+                return full_parsed
+        except:
+            pass
+        
+        return None
+
     for enc in encodings:
         try:
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, encoding=enc)
             
-            # --- الإضافة الجديدة لحل مشكلة التاريخ ---
-            # البحث عن أي عمود نصي ومحاولة تحويله إلى صيغة تاريخ
+            # اكتشاف وتحويل أعمدة التاريخ
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    try:
-                        # إذا نجح التحويل، سيصبح العمود من نوع datetime
-                        df[col] = pd.to_datetime(df[col])
-                    except (ValueError, TypeError):
-                        # إذا فشل (يعني أنه نص عادي وليس تاريخ)، يتم تجاهله
-                        pass
-            # ----------------------------------------
+                    parsed = try_parse_date_column(df[col])
+                    if parsed is not None:
+                        df[col] = parsed
             
             return df, enc
         except (UnicodeDecodeError, Exception):
             continue
+    
     raise UnicodeDecodeError("utf-8", b"", 0, 1, "Unable to decode file with common encodings.")
+
 
 # ========================== DATABASE ==========================
 DB_PATH = "nexus_users.db"
@@ -123,7 +165,6 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS subscription_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +176,6 @@ def init_db():
             is_active INTEGER DEFAULT 1
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_subscriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,7 +189,6 @@ def init_db():
             FOREIGN KEY (plan_id) REFERENCES subscription_plans(id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
@@ -167,11 +206,9 @@ def init_db():
         ]
         c.executemany("INSERT INTO subscription_plans (name, price_monthly, price_yearly, max_rows, features, is_active) VALUES (?,?,?,?,?,?)", plans)
     
-    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('deepseek_api_key', '')")
-    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('groq_api_key', '')")
+    for key in ['deepseek_api_key', 'groq_api_key', 'custom_ai_url', 'custom_ai_api_key', 'custom_ai_model']:
+        c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, '')", (key,))
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('ai_provider', 'deepseek')")
-    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_url', '')")
-    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_api_key', '')")
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_model', 'gpt-3.5-turbo')")
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_enabled', '0')")
     
@@ -185,8 +222,7 @@ def init_db():
     if existing:
         c.execute("UPDATE users SET password_hash = ?, is_admin = 1 WHERE email = ?", (hashed, admin_email))
     else:
-        c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)",
-                  (admin_email, hashed))
+        c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)", (admin_email, hashed))
     
     conn.commit()
     conn.close()
@@ -223,11 +259,13 @@ def register_user(email, pwd, is_admin=False):
             c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)",
                       (email, hash_password(pwd), 1 if is_admin else 0))
             conn.commit()
+            last_id = c.lastrowid
             c.execute("SELECT id FROM subscription_plans WHERE name = 'Free'")
             free_plan = c.fetchone()
             if free_plan:
                 c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 1)",
-                          (c.lastrowid, free_plan["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
+                          (last_id, free_plan["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
+            conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
@@ -268,12 +306,6 @@ def toggle_admin(user_id, make_admin):
         c.execute("UPDATE users SET is_admin = ? WHERE id = ?", (1 if make_admin else 0, user_id))
         conn.commit()
 
-def get_user_by_id(user_id):
-    with get_db() as conn:
-        c = conn.cursor()
-        c.execute("SELECT id, email, is_admin FROM users WHERE id = ?", (user_id,))
-        return c.fetchone()
-
 def get_user_by_email(email):
     with get_db() as conn:
         c = conn.cursor()
@@ -290,14 +322,13 @@ def add_admin_by_email(email):
             log_system_action("system", "promote_to_admin", f"Promoted user {email} to admin")
             return True, f"User {email} is now admin."
         else:
-            return False, f"User {email} not found. Please ask them to register first."
+            return False, f"User {email} not found."
 
 def reset_user_password(user_id, new_password):
     with get_db() as conn:
         c = conn.cursor()
         c.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(new_password), user_id))
         conn.commit()
-        log_system_action("system", "reset_password", f"Reset password for user ID {user_id}")
 
 def get_login_logs(limit=200):
     with get_db() as conn:
@@ -339,7 +370,6 @@ def get_stats():
             "today_attempts": today_attempts,
         }
 
-# ======================== SUBSCRIPTION HELPERS ========================
 def get_available_plans():
     with get_db() as conn:
         c = conn.cursor()
@@ -358,7 +388,6 @@ def update_plan(plan_id, price_monthly, price_yearly, max_rows, features):
         c.execute("UPDATE subscription_plans SET price_monthly = ?, price_yearly = ?, max_rows = ?, features = ? WHERE id = ?",
                   (price_monthly, price_yearly, max_rows, features, plan_id))
         conn.commit()
-        log_system_action("system", "update_plan", f"Updated plan ID {plan_id}")
 
 def get_user_subscription(user_id):
     with get_db() as conn:
@@ -379,6 +408,7 @@ def get_user_subscription(user_id):
             if free:
                 c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 1)",
                           (user_id, free["id"], datetime.now(), datetime.now() + timedelta(days=365*100)))
+                conn.commit()
                 return {"name": free["name"], "max_rows": free["max_rows"], "features": free["features"], "plan_id": free["id"]}
             return None
 
@@ -391,7 +421,6 @@ def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="ma
         c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active, payment_method) VALUES (?, ?, ?, ?, 1, ?)",
                   (user_id, plan_id, start, end, payment_method))
         conn.commit()
-        log_system_action("system", "subscription_upgrade", f"User {user_id} upgraded to plan {plan_id} for {duration_months} months (method: {payment_method})")
         return True
 
 def get_all_subscriptions():
@@ -405,17 +434,7 @@ def get_all_subscriptions():
             ORDER BY us.start_date DESC
         ''')
         rows = c.fetchall()
-        result = []
-        for row in rows:
-            result.append({
-                "user_id": row["user_id"],
-                "email": row["email"],
-                "plan_name": row["plan_name"],
-                "start_date": row["start_date"],
-                "end_date": row["end_date"],
-                "is_active": row["is_active"]
-            })
-        return result
+        return [dict(row) for row in rows]
 
 def get_subscription_stats():
     with get_db() as conn:
@@ -449,13 +468,15 @@ def extend_subscription(user_id, extra_months=1):
         c.execute("SELECT end_date FROM user_subscriptions WHERE user_id = ? AND is_active = 1", (user_id,))
         row = c.fetchone()
         if row:
-            new_end = datetime.strptime(row["end_date"], "%Y-%m-%d %H:%M:%S") + timedelta(days=30*extra_months)
+            try:
+                new_end = datetime.strptime(str(row["end_date"]), "%Y-%m-%d %H:%M:%S") + timedelta(days=30*extra_months)
+            except:
+                new_end = datetime.now() + timedelta(days=30*extra_months)
             c.execute("UPDATE user_subscriptions SET end_date = ? WHERE user_id = ? AND is_active = 1", (new_end, user_id))
             conn.commit()
             return True
         return False
 
-# ======================== GLOBAL SETTINGS ========================
 def get_setting(key, default=""):
     with get_db() as conn:
         c = conn.cursor()
@@ -466,12 +487,10 @@ def get_setting(key, default=""):
 def set_setting(key, value):
     with get_db() as conn:
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-                  (key, value))
+        c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, value))
         conn.commit()
-        log_system_action("system", "update_setting", f"Updated {key}")
 
-# ========================== PAGE CONFIG WITH MOBILE OPTIMIZATION ==========================
+# ========================== PAGE CONFIG ==========================
 st.set_page_config(
     page_title="NEXUS Analytics Pro",
     page_icon="🚀",
@@ -479,184 +498,579 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ================== DARK THEME CSS (محسّن) ==================
+# ========================== FIX #3: ENHANCED UI CSS ==========================
 st.markdown("""
 <style>
-/* Global dark background */
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: #0f172a !important;
-    color: #f1f5f9 !important;
-}
-/* File Uploader (صندوق رفع الملفات) */
-[data-testid="stFileUploadDropzone"] {
-    background-color: #1e293b !important;
-    border: 2px dashed #475569 !important;
-}
-[data-testid="stFileUploadDropzone"] * {
-    color: #f1f5f9 !important;
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ===== ROOT VARIABLES ===== */
+:root {
+    --bg-primary: #060b18;
+    --bg-secondary: #0d1626;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2438;
+    --accent-purple: #7c3aed;
+    --accent-cyan: #06b6d4;
+    --accent-orange: #f97316;
+    --accent-green: #10b981;
+    --accent-pink: #ec4899;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --border: #1e293b;
+    --border-bright: #334155;
+    --glow-purple: rgba(124, 58, 237, 0.25);
+    --glow-cyan: rgba(6, 182, 212, 0.25);
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
 }
 
-/* Chat Input (صندوق إدخال الرسائل) */
-[data-testid="stChatInput"] {
-    background-color: #0f172a !important; /* لون خلفية الصندوق من الخارج */
-}
-[data-testid="stChatInput"] textarea {
-    background-color: #334155 !important; /* لون خلفية مكان الكتابة */
-    color: white !important;
+/* ===== GLOBAL RESET ===== */
+html, body, [data-testid="stAppViewContainer"], .main {
+    background-color: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
 }
 
-/* جعل الرسائل تتمدد لتحتوي النص بالكامل */
-.stChatMessage, .chat-bubble {
-    height: auto !important;
-    word-wrap: break-word !important;
-    white-space: pre-wrap !important;
+/* ===== ANIMATED BACKGROUND ===== */
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: 
+        radial-gradient(ellipse at 20% 20%, rgba(124, 58, 237, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(6, 182, 212, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(249, 115, 22, 0.04) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
 }
 
+/* ===== SIDEBAR ===== */
 [data-testid="stSidebar"] {
-    background-color: #0f172a !important;
-    border-right: 1px solid #334155 !important;
+    background: linear-gradient(180deg, #060b18 0%, #0d1626 100%) !important;
+    border-right: 1px solid rgba(124, 58, 237, 0.3) !important;
+    box-shadow: 4px 0 30px rgba(0,0,0,0.5) !important;
 }
-
 [data-testid="stSidebar"] * {
-    color: #f1f5f9 !important;
+    color: var(--text-primary) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+}
+[data-testid="stSidebar"] .stMarkdown h2,
+[data-testid="stSidebar"] .stMarkdown h3 {
+    font-family: 'Orbitron', sans-serif !important;
+    font-size: 0.9rem !important;
+    color: var(--accent-cyan) !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
 }
 
-/* Cards, expanders, metrics */
-.nx-header, .element-container, [data-testid="stExpander"], [data-testid="stMetric"] {
-    background-color: #1e293b !important;
-    border-radius: 20px !important;
-    padding: 1rem !important;
-    margin-bottom: 1rem !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
-    color: #f1f5f9 !important;
-}
-
-/* Chat bubbles */
-.chat-message.user .chat-bubble {
-    background-color: #334155 !important;
-    color: white !important;
-}
-.chat-message.assistant .chat-bubble {
-    background-color: #1e293b !important;
-    border: 1px solid #475569 !important;
-    color: #f1f5f9 !important;
-}
-
-/* Input fields */
-
-.stTextInput > div > div > input,
-.stSelectbox > div > div,
-.stTextArea textarea,
-.stNumberInput input {
-    background-color: #334155 !important;
-    color: white !important;
-    border-color: #475569 !important;
-}
-
-/* Buttons */
-.stButton button {
-    background: linear-gradient(135deg, #8b5cf6, #06b6d4) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 12px !important;
-    padding: 0.5rem 1rem !important;
-    font-weight: 600 !important;
-}
-.stButton button:hover {
-    opacity: 0.9 !important;
-    transform: scale(1.02) !important;
-}
-
-/* Dataframes */
-.dataframe, .stDataFrame {
-    background-color: #1e293b !important;
-    color: #f1f5f9 !important;
-}
-.dataframe th {
-    background-color: #334155 !important;
-    color: white !important;
-}
-.dataframe td {
-    background-color: #1e293b !important;
-    color: #f1f5f9 !important;
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
+/* ===== CARDS & CONTAINERS ===== */
+.nx-header {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(6, 182, 212, 0.1)) !important;
+    border: 1px solid rgba(124, 58, 237, 0.3) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 1.2rem 1.5rem !important;
+    margin-bottom: 1.5rem !important;
+    backdrop-filter: blur(10px) !important;
+    display: flex;
+    align-items: center;
     gap: 1rem;
-    background-color: #1e293b;
-    border-radius: 20px;
-    padding: 0.5rem;
+}
+.nx-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    padding: 4px 10px;
+    border-radius: 6px;
+    letter-spacing: 1px;
+}
+.nx-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #f1f5f9, var(--accent-cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* ===== METRICS ===== */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg, var(--bg-card), var(--bg-card-hover)) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 1.5rem !important;
+    transition: all 0.3s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+[data-testid="stMetric"]::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+}
+[data-testid="stMetric"]:hover {
+    border-color: rgba(124, 58, 237, 0.5) !important;
+    box-shadow: 0 0 20px var(--glow-purple) !important;
+    transform: translateY(-2px) !important;
+}
+[data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+    font-size: 0.8rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-family: 'Orbitron', sans-serif !important;
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+}
+
+/* ===== TABS ===== */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 6px !important;
+    flex-wrap: wrap !important;
 }
 .stTabs [data-baseweb="tab"] {
-    background-color: #334155;
-    color: white;
-    border-radius: 12px;
-    padding: 0.5rem 1rem;
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 0.6rem 1rem !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+    white-space: nowrap !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--text-primary) !important;
+    background: rgba(124, 58, 237, 0.1) !important;
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-    color: white;
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan)) !important;
+    color: white !important;
+    box-shadow: 0 4px 15px var(--glow-purple) !important;
 }
 
-/* Metrics text */
-[data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
-    color: #f1f5f9 !important;
+/* ===== BUTTONS ===== */
+.stButton > button {
+    background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 0.65rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.5px !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 25px rgba(124, 58, 237, 0.5) !important;
+    opacity: 0.95 !important;
+}
+.stButton > button:active {
+    transform: translateY(0) !important;
+}
+
+/* ===== INPUT FIELDS ===== */
+.stTextInput > div > div > input,
+.stTextArea textarea,
+.stNumberInput input,
+.stSelectbox > div > div {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-sm) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.95rem !important;
+    padding: 0.6rem 1rem !important;
+    transition: border-color 0.2s ease !important;
+}
+.stTextInput > div > div > input:focus,
+.stTextArea textarea:focus {
+    border-color: var(--accent-purple) !important;
+    box-shadow: 0 0 0 2px var(--glow-purple) !important;
+}
+
+/* ===== FILE UPLOADER ===== */
+[data-testid="stFileUploadDropzone"] {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.05), rgba(6, 182, 212, 0.05)) !important;
+    border: 2px dashed rgba(124, 58, 237, 0.4) !important;
+    border-radius: var(--radius-md) !important;
+    transition: all 0.3s ease !important;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+    border-color: var(--accent-cyan) !important;
+    background: rgba(6, 182, 212, 0.08) !important;
+}
+[data-testid="stFileUploadDropzone"] * {
+    color: var(--text-primary) !important;
+}
+
+/* ===== DATAFRAME ===== */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+}
+.dataframe {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.85rem !important;
+}
+.dataframe th {
+    background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
+    color: white !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    font-size: 0.75rem !important;
+}
+.dataframe td {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+.dataframe tr:hover td {
+    background: var(--bg-card-hover) !important;
+}
+
+/* ===== EXPANDER ===== */
+[data-testid="stExpander"] {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-bright) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"] summary {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    padding: 1rem 1.5rem !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+}
+
+/* ===== SUCCESS / ERROR / WARNING / INFO ===== */
+[data-testid="stAlert"] {
+    border-radius: var(--radius-md) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+}
+
+/* ===== CHAT - FIX #2: PROPER MESSAGE CONTAINERS ===== */
+/* Chat input */
+[data-testid="stChatInput"] {
+    background: var(--bg-secondary) !important;
+    border: 1px solid rgba(124, 58, 237, 0.3) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 4px !important;
+}
+[data-testid="stChatInput"] textarea {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    border-radius: var(--radius-md) !important;
+    resize: none !important;
+    min-height: 52px !important;
+}
+
+/* Chat message containers - KEY FIX */
+[data-testid="stChatMessage"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-bottom: 1rem !important;
+}
+
+/* User chat messages */
+[data-testid="stChatMessage"][data-testid*="user"] .stMarkdown,
+.stChatMessage[aria-label*="user"] .stMarkdown {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(79, 70, 229, 0.15)) !important;
+    border: 1px solid rgba(124, 58, 237, 0.3) !important;
+    border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
+    padding: 1rem 1.25rem !important;
+    width: fit-content !important;
+    max-width: 80% !important;
+    margin-left: auto !important;
+    word-wrap: break-word !important;
+    white-space: pre-wrap !important;
+    height: auto !important;
+    min-height: unset !important;
+}
+
+/* Assistant chat messages */
+[data-testid="stChatMessage"][data-testid*="assistant"] .stMarkdown,
+.stChatMessage[aria-label*="assistant"] .stMarkdown {
+    background: linear-gradient(135deg, var(--bg-card), rgba(6, 182, 212, 0.05)) !important;
+    border: 1px solid rgba(6, 182, 212, 0.2) !important;
+    border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
+    padding: 1rem 1.25rem !important;
+    width: fit-content !important;
+    max-width: 85% !important;
+    margin-right: auto !important;
+    word-wrap: break-word !important;
+    white-space: pre-wrap !important;
+    height: auto !important;
+    min-height: unset !important;
+}
+
+/* General stMarkdown inside chat - ensure no height clipping */
+[data-testid="stChatMessage"] .stMarkdown p,
+[data-testid="stChatMessage"] .stMarkdown {
+    height: auto !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+}
+
+/* Custom chat bubble styles */
+.chat-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.chat-message .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.chat-message.user {
+    flex-direction: row-reverse;
+}
+.chat-message.user .avatar {
+    background: linear-gradient(135deg, var(--accent-purple), #4f46e5);
+}
+.chat-message.assistant .avatar {
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+}
+
+/* FIX #2: Chat bubbles properly expand to hold full content */
+.chat-bubble {
+    padding: 1rem 1.25rem !important;
+    border-radius: var(--radius-md) !important;
+    line-height: 1.7 !important;
+    font-size: 0.95rem !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    word-wrap: break-word !important;
+    word-break: break-word !important;
+    white-space: pre-wrap !important;
+    
+    /* CRITICAL: these prevent clipping */
+    height: auto !important;
+    min-height: unset !important;
+    max-height: none !important;
+    overflow: visible !important;
+    
+    max-width: 75vw;
+}
+.chat-message.user .chat-bubble {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(79, 70, 229, 0.2)) !important;
+    border: 1px solid rgba(124, 58, 237, 0.4) !important;
+    border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
+    color: var(--text-primary) !important;
+    margin-left: auto;
+}
+.chat-message.assistant .chat-bubble {
+    background: linear-gradient(135deg, var(--bg-card), rgba(6, 182, 212, 0.08)) !important;
+    border: 1px solid rgba(6, 182, 212, 0.25) !important;
+    border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
+    color: var(--text-primary) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2) !important;
+}
+
+/* ===== PROGRESS BAR ===== */
+.stProgress > div > div {
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan)) !important;
+    border-radius: 999px !important;
+}
+.stProgress > div {
+    background: var(--border) !important;
+    border-radius: 999px !important;
+}
+
+/* ===== SLIDER ===== */
+[data-testid="stSlider"] > div > div > div {
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan)) !important;
+}
+
+/* ===== CHECKBOX ===== */
+[data-testid="stCheckbox"] > label > div {
+    border-color: var(--accent-purple) !important;
+}
+[data-testid="stCheckbox"] > label > div[aria-checked="true"] {
+    background: var(--accent-purple) !important;
+}
+
+/* ===== RADIO ===== */
+[data-testid="stRadio"] label {
+    color: var(--text-primary) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { 
+    background: linear-gradient(180deg, var(--accent-purple), var(--accent-cyan));
+    border-radius: 999px;
+}
+
+/* ===== DIVIDER ===== */
+hr { border-color: var(--border-bright) !important; opacity: 0.4 !important; }
+
+/* ===== CAPTION ===== */
+.stCaption, [data-testid="stCaptionContainer"] {
+    color: var(--text-muted) !important;
+    font-size: 0.8rem !important;
+}
+
+/* ===== MULTISELECT ===== */
+[data-testid="stMultiSelect"] > div > div {
+    background: var(--bg-card) !important;
+    border-color: var(--border-bright) !important;
+    border-radius: var(--radius-sm) !important;
+}
+[data-baseweb="tag"] {
+    background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
+    border: none !important;
+    border-radius: 6px !important;
+}
+
+/* ===== DOWNLOAD BUTTON ===== */
+[data-testid="stDownloadButton"] > button {
+    background: linear-gradient(135deg, var(--accent-green), #059669) !important;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
+}
+
+/* ===== ADMIN PANEL SPECIFIC ===== */
+.admin-hero {
+    background: linear-gradient(135deg, #0d1626 0%, rgba(124, 58, 237, 0.15) 50%, rgba(6, 182, 212, 0.1) 100%);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: var(--radius-xl);
+    padding: 2.5rem;
+    margin-bottom: 2rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+.admin-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(124, 58, 237, 0.05) 60deg, transparent 120deg);
+    animation: spin 20s linear infinite;
+    pointer-events: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== PLAN CARDS ===== */
+.plan-card {
+    background: linear-gradient(145deg, var(--bg-card), var(--bg-card-hover));
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-xl);
+    padding: 2rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+.plan-card:hover {
+    border-color: rgba(124, 58, 237, 0.5);
+    box-shadow: 0 0 40px var(--glow-purple);
+    transform: translateY(-4px);
+}
+.plan-card.featured {
+    border-color: rgba(124, 58, 237, 0.6);
+    background: linear-gradient(145deg, rgba(124, 58, 237, 0.1), rgba(6, 182, 212, 0.05));
+}
+.plan-card.featured::before {
+    content: '⭐ POPULAR';
+    position: absolute;
+    top: 12px; right: 12px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--accent-orange);
+    background: rgba(249, 115, 22, 0.15);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    padding: 3px 8px;
+    border-radius: 999px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ========== إعدادات مخصصة للمخططات البيانية (وضوح عالي) ==========
-# تعريف تنسيق مخصص للمخططات يجمع بين dark وتباين عالٍ
+# ========== PLOT TEMPLATE ==========
 custom_dark_template = go.layout.Template(
     layout=go.Layout(
-        paper_bgcolor='#1e293b',   # خلفية الرسم البياني
-        plot_bgcolor='#1e293b',
-        font=dict(color='#f1f5f9', size=12),
-        title_font=dict(size=16, color='#f1f5f9'),
+        paper_bgcolor='#111827',
+        plot_bgcolor='#111827',
+        font=dict(color='#f1f5f9', size=12, family='Space Grotesk'),
+        title_font=dict(size=16, color='#f1f5f9', family='Orbitron'),
         xaxis=dict(
-            title_font=dict(size=13, color='#cbd5e1'),
-            tickfont=dict(size=11, color='#cbd5e1'),
-            gridcolor='#334155',
-            linecolor='#475569',
-            zerolinecolor='#475569'
+            title_font=dict(size=13, color='#94a3b8'),
+            tickfont=dict(size=11, color='#94a3b8'),
+            gridcolor='#1e293b',
+            linecolor='#334155',
+            zerolinecolor='#334155'
         ),
         yaxis=dict(
-            title_font=dict(size=13, color='#cbd5e1'),
-            tickfont=dict(size=11, color='#cbd5e1'),
-            gridcolor='#334155',
-            linecolor='#475569',
-            zerolinecolor='#475569'
+            title_font=dict(size=13, color='#94a3b8'),
+            tickfont=dict(size=11, color='#94a3b8'),
+            gridcolor='#1e293b',
+            linecolor='#334155',
+            zerolinecolor='#334155'
         ),
         legend=dict(
             font=dict(size=12, color='#f1f5f9'),
             bgcolor='rgba(0,0,0,0)',
-            bordercolor='#475569'
+            bordercolor='#334155'
         ),
-        hoverlabel=dict(bgcolor='#0f172a', font_size=12, font_color='#f1f5f9'),
-        colorway=['#f97316', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#06b6d4', '#eab308', '#ec4899']  # ألوان زاهية
+        hoverlabel=dict(bgcolor='#0f172a', font_size=13, font_color='#f1f5f9', font_family='Space Grotesk'),
+        colorway=['#f97316', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#06b6d4', '#eab308', '#ec4899']
     )
 )
 
-# دالة مساعدة لتطبيق التنسيق على أي مخطط
 def apply_plot_style(fig):
     fig.update_layout(template=custom_dark_template)
-    # إضافة شبكة خفيفة
-    fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#334155')
-    fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+    fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#1e293b')
+    fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='#1e293b')
     return fig
 
-# تعيين القالب الافتراضي لـ plotly express أيضاً
 pio.templates["custom_dark"] = custom_dark_template
 pio.templates.default = "custom_dark"
 
-# ========================== HELPER FUNCTIONS ==========================
+# ========================== HELPERS ==========================
 def sec_header(tag, title, sub=""):
     st.markdown(f"""
     <div class="nx-header">
         <span class="nx-tag">{tag}</span>
         <span class="nx-title">{title}</span>
-        <span style="margin-left:auto; font-size:0.7rem; color:#94a3b8;">{sub}</span>
+        <span style="margin-left:auto; font-size:0.75rem; color:#64748b; font-family:'JetBrains Mono',monospace;">{sub}</span>
     </div>""", unsafe_allow_html=True)
 
 def fmt_num(n, prefix="", suffix="", decimals=1):
@@ -674,195 +1088,103 @@ def fmt_num(n, prefix="", suffix="", decimals=1):
     except Exception:
         return "N/A"
 
-# ========================== AI API FUNCTIONS ==========================
+# ========================== AI API ==========================
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def call_deepseek_api(messages, api_key, max_tokens=2000, temperature=0.7):
     if not api_key:
         return None, "DeepSeek API key not configured"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "deepseek-chat",
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": False
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": "deepseek-chat", "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": False}
     try:
         response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"], None
-        else:
-            return None, f"DeepSeek Error {response.status_code}: {response.text[:200]}"
+        return None, f"DeepSeek Error {response.status_code}: {response.text[:200]}"
     except Exception as e:
         return None, f"DeepSeek Exception: {str(e)}"
 
 def call_groq_api(messages, api_key, max_tokens=2000, temperature=0.7):
     if not api_key:
         return None, "Groq API key not configured"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": False
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": "llama-3.3-70b-versatile", "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": False}
     try:
         response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"], None
-        else:
-            return None, f"Groq Error {response.status_code}: {response.text[:200]}"
+        return None, f"Groq Error {response.status_code}: {response.text[:200]}"
     except Exception as e:
         return None, f"Groq Exception: {str(e)}"
 
 def call_custom_ai_api(messages, api_url, api_key, model, max_tokens=2000, temperature=0.7):
     if not api_url or not api_key:
         return None, "Custom AI endpoint or API key not configured"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": False
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": False}
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"], None
-        else:
-            return None, f"Custom AI Error {response.status_code}: {response.text[:200]}"
+        return None, f"Custom AI Error {response.status_code}: {response.text[:200]}"
     except Exception as e:
         return None, f"Custom AI Exception: {str(e)}"
 
 def get_ai_response(messages, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, max_tokens=2000, temperature=0.7):
     if provider == "deepseek":
-        response, error = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
-        if response:
-            return response, None
+        r, e = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
+        if r: return r, None
         if groq_key:
-            response2, error2 = call_groq_api(messages, groq_key, max_tokens, temperature)
-            if response2:
-                return response2, None
-            return None, f"DeepSeek failed: {error}. Groq failed: {error2}"
-        if custom_url and custom_key:
-            response3, error3 = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
-            if response3:
-                return response3, None
-            return None, f"DeepSeek failed: {error}. Custom AI failed: {error3}"
-        return None, error
+            r2, e2 = call_groq_api(messages, groq_key, max_tokens, temperature)
+            if r2: return r2, None
+        return None, e
     elif provider == "groq":
-        response, error = call_groq_api(messages, groq_key, max_tokens, temperature)
-        if response:
-            return response, None
+        r, e = call_groq_api(messages, groq_key, max_tokens, temperature)
+        if r: return r, None
         if deepseek_key:
-            response2, error2 = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
-            if response2:
-                return response2, None
-            return None, f"Groq failed: {error}. DeepSeek failed: {error2}"
-        if custom_url and custom_key:
-            response3, error3 = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
-            if response3:
-                return response3, None
-            return None, f"Groq failed: {error}. Custom AI failed: {error3}"
-        return None, error
+            r2, e2 = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
+            if r2: return r2, None
+        return None, e
     elif provider == "custom":
-        response, error = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
-        if response:
-            return response, None
+        r, e = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
+        if r: return r, None
         if deepseek_key:
-            response2, error2 = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
-            if response2:
-                return response2, None
-            return None, f"Custom AI failed: {error}. DeepSeek failed: {error2}"
-        if groq_key:
-            response3, error3 = call_groq_api(messages, groq_key, max_tokens, temperature)
-            if response3:
-                return response3, None
-            return None, f"Custom AI failed: {error}. Groq failed: {error3}"
-        return None, error
-    else:
-        return None, f"Unknown provider: {provider}"
+            r2, e2 = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
+            if r2: return r2, None
+        return None, e
+    return None, f"Unknown provider: {provider}"
 
 def get_data_context(df):
     if df is None or len(df) == 0:
         return "No data currently loaded."
-    num_rows = len(df)
-    num_cols = len(df.columns)
-    columns_list = list(df.columns)
+    num_rows, num_cols = len(df), len(df.columns)
     numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
     numeric_stats = {}
     for col in numeric_cols[:10]:
         try:
-            numeric_stats[col] = {
-                "min": float(df[col].min()) if not pd.isna(df[col].min()) else None,
-                "max": float(df[col].max()) if not pd.isna(df[col].max()) else None,
-                "mean": float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
-                "sum": float(df[col].sum()) if not pd.isna(df[col].sum()) else None
-            }
-        except:
-            pass
+            numeric_stats[col] = {"min": float(df[col].min()), "max": float(df[col].max()), "mean": float(df[col].mean()), "sum": float(df[col].sum())}
+        except: pass
     categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     categorical_samples = {}
     for col in categorical_cols[:5]:
         try:
-            unique_vals = df[col].dropna().unique()[:5].tolist()
-            categorical_samples[col] = unique_vals
-        except:
-            pass
-    context = f"""
-Dataset Overview:
-- Total rows: {num_rows:,}
-- Total columns: {num_cols}
-- Column names: {columns_list}
-
-Numeric Columns Summary (first {len(numeric_stats)}):
-{json.dumps(numeric_stats, indent=2, default=str)}
-
-Categorical Columns Samples:
-{json.dumps(categorical_samples, indent=2, default=str)}
-
-First 5 rows of data:
-{df.head(5).to_string()}
-"""
-    return context
+            categorical_samples[col] = df[col].dropna().unique()[:5].tolist()
+        except: pass
+    return f"""Dataset: {num_rows:,} rows, {num_cols} columns\nColumns: {list(df.columns)}\nNumeric Stats: {json.dumps(numeric_stats, indent=2, default=str)}\nCategorical Samples: {json.dumps(categorical_samples, indent=2, default=str)}\nFirst 5 rows:\n{df.head(5).to_string()}"""
 
 def get_chatbot_response(user_message, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, chat_history, df=None):
-    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. ..."""
-    
+    system_prompt = "You are NEXUS AI, an intelligent analytics assistant. Be helpful, concise, and data-driven."
     messages = [{"role": "system", "content": system_prompt}]
     for msg in chat_history[-20:]:
         messages.append({"role": msg["role"], "content": msg["content"]})
-    
     if df is not None and len(df) > 0:
         data_context = get_data_context(df)
-        user_content = f"""
-Current Dataset Context:
-{data_context}
-
-User Question: {user_message}
-
-Please answer based on the dataset context provided. If the question is not related to the data, ignore the data context.
-"""
+        user_content = f"Dataset Context:\n{data_context}\n\nUser Question: {user_message}"
     else:
         user_content = user_message
-    
     messages.append({"role": "user", "content": user_content})
-    
-    response, error = get_ai_response(messages, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model)
-    return response, error
+    return get_ai_response(messages, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model)
 
 # ========================== DATA FUNCTIONS ==========================
 @st.cache_data(show_spinner=False)
@@ -871,98 +1193,145 @@ def load_builtin_dataset():
     n = 5000
     start = pd.Timestamp("2022-01-01")
     dates = [start + pd.Timedelta(days=int(x)) for x in np.sort(np.random.randint(0, 1095, n))]
-    categories = np.random.choice(
-        ["Electronics", "Fashion", "Home & Kitchen", "Beauty", "Sports", "Books", "Toys", "Groceries"],
-        n, p=[0.22, 0.18, 0.17, 0.12, 0.11, 0.08, 0.07, 0.05]
-    )
-    regions = np.random.choice(["Riyadh", "Dubai", "Cairo", "Jeddah", "Kuwait City", "Doha", "Amman", "Manama"], n)
-    segments = np.random.choice(["Premium", "Standard", "Economy"], n, p=[0.25, 0.5, 0.25])
-    base_prices = {
-        "Electronics": 1200, "Fashion": 180, "Home & Kitchen": 250,
-        "Beauty": 120, "Sports": 300, "Books": 60, "Toys": 90, "Groceries": 45
-    }
-    sales = np.array([base_prices[c] * np.random.uniform(0.7, 2.5) for c in categories])
-    discount = np.random.choice([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3], n, p=[0.3, 0.15, 0.2, 0.15, 0.1, 0.06, 0.04])
-    sales_final = sales * (1 - discount)
-    profit_margin = np.where(
-        categories == "Electronics", 0.12,
-        np.where(categories == "Fashion", 0.35,
-                 np.where(categories == "Books", 0.4, 0.22))
-    )
-    profit = sales_final * (profit_margin + np.random.normal(0, 0.03, n))
-    qty = np.random.randint(1, 8, n)
-    returns = np.random.choice([0, 1], n, p=[0.88, 0.12])
-    rating = np.round(np.random.normal(4.1, 0.5, n).clip(1, 5), 1)
-    shipping_days = np.random.randint(1, 7, n)
-    df = pd.DataFrame({
-        "Order Date": dates, "Category": categories, "Sub-Region": regions,
-        "Customer Segment": segments, "Sales": np.round(sales_final, 2),
-        "Profit": np.round(profit, 2), "Discount": discount,
-        "Quantity": qty, "Returns": returns, "Rating": rating,
-        "Shipping Days": shipping_days
-    })
-    return df
+    categories = np.random.choice(["Electronics","Fashion","Home & Kitchen","Beauty","Sports","Books","Toys","Groceries"], n, p=[0.22,0.18,0.17,0.12,0.11,0.08,0.07,0.05])
+    regions = np.random.choice(["Riyadh","Dubai","Cairo","Jeddah","Kuwait City","Doha","Amman","Manama"], n)
+    segments = np.random.choice(["Premium","Standard","Economy"], n, p=[0.25,0.5,0.25])
+    base_prices = {"Electronics":1200,"Fashion":180,"Home & Kitchen":250,"Beauty":120,"Sports":300,"Books":60,"Toys":90,"Groceries":45}
+    sales = np.array([base_prices[c]*np.random.uniform(0.7,2.5) for c in categories])
+    discount = np.random.choice([0,0.05,0.1,0.15,0.2,0.25,0.3], n, p=[0.3,0.15,0.2,0.15,0.1,0.06,0.04])
+    sales_final = sales*(1-discount)
+    profit_margin = np.where(categories=="Electronics",0.12,np.where(categories=="Fashion",0.35,np.where(categories=="Books",0.4,0.22)))
+    profit = sales_final*(profit_margin+np.random.normal(0,0.03,n))
+    qty = np.random.randint(1,8,n)
+    returns = np.random.choice([0,1],n,p=[0.88,0.12])
+    rating = np.round(np.random.normal(4.1,0.5,n).clip(1,5),1)
+    shipping_days = np.random.randint(1,7,n)
+    return pd.DataFrame({"Order Date":dates,"Category":categories,"Sub-Region":regions,"Customer Segment":segments,"Sales":np.round(sales_final,2),"Profit":np.round(profit,2),"Discount":discount,"Quantity":qty,"Returns":returns,"Rating":rating,"Shipping Days":shipping_days})
 
 def detect_column_types(df):
+    """FIX #1: Enhanced date detection for uploaded files"""
     roles = {"date": [], "numeric": [], "categorical": [], "id": []}
+    
+    DATE_FORMATS = [
+        '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
+        '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
+        '%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y',
+        '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S', '%m/%d/%Y %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%d-%b-%Y',
+    ]
+    
+    def is_date_column(series):
+        """فحص ما إذا كان العمود يحتوي على بيانات تاريخ"""
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return True
+        if series.dtype != 'object':
+            return False
+        
+        sample = series.dropna().head(50)
+        if len(sample) == 0:
+            return False
+        
+        # تجربة كل صيغة
+        for fmt in DATE_FORMATS:
+            try:
+                parsed = pd.to_datetime(sample, format=fmt, errors='raise')
+                if len(parsed) > 0:
+                    # تأكيد على الملف الكامل
+                    full_parsed = pd.to_datetime(series, format=fmt, errors='coerce')
+                    if full_parsed.notna().mean() > 0.7:
+                        return True
+            except:
+                continue
+        
+        # المحاولة التلقائية
+        try:
+            parsed = pd.to_datetime(sample, infer_datetime_format=True, errors='coerce')
+            if parsed.notna().mean() > 0.8:
+                full_parsed = pd.to_datetime(series, infer_datetime_format=True, errors='coerce')
+                if full_parsed.notna().mean() > 0.7:
+                    return True
+        except:
+            pass
+        
+        return False
+    
     for col in df.columns:
         s = df[col]
         if pd.api.types.is_datetime64_any_dtype(s):
             roles["date"].append(col)
-        elif s.dtype == object:
-            sample = s.dropna().head(100)
-            if len(sample) > 0:
-                is_date = False
-                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d'):
-                    try:
-                        pd.to_datetime(sample, format=fmt, errors='raise')
-                        is_date = True
-                        break
-                    except:
-                        continue
-                if not is_date:
-                    try:
-                        if pd.to_datetime(sample, errors='coerce').notna().mean() > 0.6:
-                            is_date = True
-                    except:
-                        pass
-                if is_date:
-                    roles["date"].append(col)
-                elif s.nunique() < 50:
-                    roles["categorical"].append(col)
-                else:
-                    roles["id"].append(col)
+        elif is_date_column(s):
+            roles["date"].append(col)
         elif pd.api.types.is_numeric_dtype(s):
             lc = col.lower()
             if lc in ["id", "row id", "index", "customer id", "order id"] or col.endswith("_id"):
                 roles["id"].append(col)
             else:
                 roles["numeric"].append(col)
+        elif s.dtype == object:
+            if s.nunique() < 50:
+                roles["categorical"].append(col)
+            else:
+                roles["id"].append(col)
         else:
             roles["categorical"].append(col)
+    
     return roles
 
 def smart_clean(df, roles, manual_date_format=None):
+    """FIX #1: Enhanced cleaning with proper date conversion"""
     df = df.copy()
+    
+    DATE_FORMATS = [
+        '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
+        '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
+        '%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y',
+        '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%d-%b-%Y',
+    ]
+    
     for col in roles["date"]:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            continue  # already datetime
+        
         if manual_date_format:
             try:
                 df[col] = pd.to_datetime(df[col], format=manual_date_format, errors='coerce')
+                if df[col].isna().all():
+                    raise ValueError("All NaT after manual format")
+                continue
+            except:
+                pass
+        
+        # تجربة كل الصيغ
+        success = False
+        for fmt in DATE_FORMATS:
+            try:
+                parsed = pd.to_datetime(df[col], format=fmt, errors='coerce')
+                if parsed.notna().mean() > 0.7:
+                    df[col] = parsed
+                    success = True
+                    break
+            except:
+                continue
+        
+        if not success:
+            # آخر محاولة
+            try:
+                df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
             except:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
-        else:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-        if df[col].isnull().all():
-            df[col] = df[col].astype(str)
+    
     for col in roles["numeric"]:
         df[col] = pd.to_numeric(df[col], errors='coerce')
         if df[col].isnull().all():
             df[col].fillna(0, inplace=True)
         else:
             df[col].fillna(df[col].median(), inplace=True)
+    
     for col in roles["categorical"]:
         mode_val = df[col].mode()
         df[col].fillna(mode_val.iloc[0] if not mode_val.empty else "Unknown", inplace=True)
+    
     return df
 
 # ========================== ML FUNCTIONS ==========================
@@ -983,25 +1352,21 @@ def train_ml_ensemble(df_json, target_col, feature_cols):
     gb = GradientBoostingRegressor(n_estimators=150, max_depth=5, random_state=42)
     rg = Ridge(alpha=1.0)
     en = ElasticNet(alpha=0.5, l1_ratio=0.5, max_iter=2000)
-    estimators = [("rf", rf), ("gb", gb), ("ridge", rg), ("en", en)]
-    ensemble = VotingRegressor(estimators=estimators)
+    ensemble = VotingRegressor(estimators=[("rf",rf),("gb",gb),("ridge",rg),("en",en)])
     ensemble.fit(Xs, y)
     tscv = TimeSeriesSplit(n_splits=3)
-    cv_r2 = None
-    cv_mape = None
+    cv_r2 = cv_mape = None
     try:
         cv_r2 = float(cross_val_score(ensemble, Xs, y, cv=tscv, scoring="r2").mean())
-        mape_total = 0
-        count = 0
+        mape_total = 0; count = 0
         for tr, te in tscv.split(Xs):
             ensemble.fit(Xs[tr], y.iloc[tr])
             pred = ensemble.predict(Xs[te])
             mape_total += mean_absolute_percentage_error(y.iloc[te], np.maximum(pred, 1e-6))
             count += 1
-        cv_mape = (mape_total / count) * 100
+        cv_mape = (mape_total/count)*100
         ensemble.fit(Xs, y)
-    except Exception:
-        pass
+    except: pass
     rf.fit(Xs, y)
     importances = dict(zip(X.columns, rf.feature_importances_))
     perm_imp_result = permutation_importance(rf, Xs, y, n_repeats=5, random_state=42, n_jobs=-1)
@@ -1012,54 +1377,34 @@ def train_ml_ensemble(df_json, target_col, feature_cols):
 def build_forecast(date_series_json, value_series_json, horizon=90, freq='ME'):
     date_series = pd.Series(pd.read_json(io.StringIO(date_series_json), typ='series'))
     value_series = pd.Series(pd.read_json(io.StringIO(value_series_json), typ='series'))
-
     df = pd.DataFrame({"ds": pd.to_datetime(date_series), "y": value_series.values})
     period_key = 'M' if freq == 'ME' else 'W'
     df['period'] = df['ds'].dt.to_period(period_key)
     ts = df.groupby('period')['y'].sum().reset_index()
     ts['ds'] = ts['period'].dt.to_timestamp()
-    ts = ts[['ds', 'y']].sort_values('ds').reset_index(drop=True)
-
+    ts = ts[['ds','y']].sort_values('ds').reset_index(drop=True)
     if PROPHET_AVAILABLE and len(ts) > 10:
         try:
-            model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq == 'W'), daily_seasonality=False)
+            model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq=='W'), daily_seasonality=False)
             model.fit(ts)
             prophet_freq = 'M' if freq == 'ME' else 'W'
             future = model.make_future_dataframe(periods=horizon, freq=prophet_freq)
-            forecast = model.predict(future)
-            forecast = forecast.tail(horizon)
-            hist = ts.rename(columns={"ds": "Date", "y": "Value"})
-            fcast = pd.DataFrame({
-                "Date": forecast["ds"],
-                "Value": forecast["yhat"],
-                "Lower": forecast["yhat_lower"],
-                "Upper": forecast["yhat_upper"]
-            })
+            forecast = model.predict(future).tail(horizon)
+            hist = ts.rename(columns={"ds":"Date","y":"Value"})
+            fcast = pd.DataFrame({"Date":forecast["ds"],"Value":forecast["yhat"],"Lower":forecast["yhat_lower"],"Upper":forecast["yhat_upper"]})
             return hist, fcast, "Prophet"
-        except Exception:
-            pass
-
+        except: pass
     if STATSMODELS_AVAILABLE:
         try:
             model = ExponentialSmoothing(ts["y"], trend='add', seasonal=None, initialization_method='estimated')
             fit = model.fit()
             forecast_vals = fit.forecast(horizon)
             last_date = ts["ds"].iloc[-1]
-            if freq == 'ME':
-                forecast_dates = [last_date + pd.DateOffset(months=i+1) for i in range(horizon)]
-            else:
-                forecast_dates = [last_date + pd.Timedelta(days=7*(i+1)) for i in range(horizon)]
-            hist = ts.rename(columns={"ds": "Date", "y": "Value"})
-            fcast = pd.DataFrame({
-                "Date": forecast_dates,
-                "Value": forecast_vals.values,
-                "Lower": forecast_vals.values * 0.85,
-                "Upper": forecast_vals.values * 1.15
-            })
+            forecast_dates = [last_date + pd.DateOffset(months=i+1) for i in range(horizon)] if freq == 'ME' else [last_date + pd.Timedelta(days=7*(i+1)) for i in range(horizon)]
+            hist = ts.rename(columns={"ds":"Date","y":"Value"})
+            fcast = pd.DataFrame({"Date":forecast_dates,"Value":forecast_vals.values,"Lower":forecast_vals.values*0.85,"Upper":forecast_vals.values*1.15})
             return hist, fcast, "Exponential Smoothing"
-        except Exception:
-            pass
-
+        except: pass
     return None, None, "Error"
 
 @st.cache_data(show_spinner=False)
@@ -1069,40 +1414,27 @@ def run_advanced_clustering(df_json, feature_cols, method='kmeans', n_clusters=3
     for col in X.select_dtypes(include="object").columns:
         X[col] = LabelEncoder().fit_transform(X[col].astype(str))
     X = X.fillna(0)
-    scaler = StandardScaler()
-    Xs = scaler.fit_transform(X)
-
+    Xs = StandardScaler().fit_transform(X)
     if method == 'kmeans':
         model = KMeans(n_clusters=n_clusters, random_state=42, n_init=15)
         labels = model.fit_predict(Xs)
         sil = silhouette_score(Xs, labels) if len(np.unique(labels)) > 1 else None
-        inertias = {}
-        for ki in range(2, min(8, len(df))):
-            km_i = KMeans(n_clusters=ki, random_state=42, n_init=10)
-            km_i.fit(Xs)
-            inertias[ki] = km_i.inertia_
-        pca = PCA(n_components=2)
-        coords = pca.fit_transform(Xs)
-        return labels, sil, coords, inertias, pca.explained_variance_ratio_, model
-
+        inertias = {ki: KMeans(n_clusters=ki, random_state=42, n_init=10).fit(Xs).inertia_ for ki in range(2, min(8, len(df)))}
+        coords = PCA(n_components=2).fit_transform(Xs)
+        return labels, sil, coords, inertias, PCA(n_components=2).fit(Xs).explained_variance_ratio_, model
     elif method == 'dbscan':
         model = DBSCAN(eps=eps, min_samples=5)
         labels = model.fit_predict(Xs)
-        unique_labels = set(labels)
-        n_clusters_found = len(unique_labels) - (1 if -1 in unique_labels else 0)
-        sil = silhouette_score(Xs, labels) if n_clusters_found > 1 else None
-        pca = PCA(n_components=2)
-        coords = pca.fit_transform(Xs)
-        return labels, sil, coords, None, pca.explained_variance_ratio_, model
-
+        n_cl = len(set(labels)) - (1 if -1 in labels else 0)
+        sil = silhouette_score(Xs, labels) if n_cl > 1 else None
+        coords = PCA(n_components=2).fit_transform(Xs)
+        return labels, sil, coords, None, PCA(n_components=2).fit(Xs).explained_variance_ratio_, model
     elif method == 'hierarchical':
         model = AgglomerativeClustering(n_clusters=n_clusters)
         labels = model.fit_predict(Xs)
         sil = silhouette_score(Xs, labels) if len(np.unique(labels)) > 1 else None
-        pca = PCA(n_components=2)
-        coords = pca.fit_transform(Xs)
-        return labels, sil, coords, None, pca.explained_variance_ratio_, model
-
+        coords = PCA(n_components=2).fit_transform(Xs)
+        return labels, sil, coords, None, PCA(n_components=2).fit(Xs).explained_variance_ratio_, model
     return None, None, None, None, None, None
 
 @st.cache_data(show_spinner=False)
@@ -1112,73 +1444,52 @@ def detect_anomalies_iforest(df_json, feature_cols, contamination=0.05):
     for col in X.select_dtypes(include="object").columns:
         X[col] = LabelEncoder().fit_transform(X[col].astype(str))
     X = X.fillna(0)
-    scaler = StandardScaler()
-    Xs = scaler.fit_transform(X)
+    Xs = StandardScaler().fit_transform(X)
     iso_forest = IsolationForest(contamination=contamination, random_state=42)
     preds = iso_forest.fit_predict(Xs)
-    anomalies = preds == -1
-    return anomalies, iso_forest
+    return preds == -1, iso_forest
 
 def compute_rfm(df, date_col, sales_col, id_col):
     if id_col == "—" or id_col not in df.columns:
         return None
     ref = df[date_col].max()
-    rfm = df.groupby(id_col).agg(
-        Recency=(date_col, lambda x: (ref - x.max()).days),
-        Frequency=(date_col, "count"),
-        Monetary=(sales_col, "sum"),
-    ).reset_index()
+    rfm = df.groupby(id_col).agg(Recency=(date_col, lambda x: (ref-x.max()).days), Frequency=(date_col, "count"), Monetary=(sales_col, "sum")).reset_index()
     try:
-        rfm["Recency_Score"] = pd.qcut(rfm["Recency"], 5, labels=[5, 4, 3, 2, 1], duplicates='drop').astype(float)
-        rfm["Frequency_Score"] = pd.qcut(rfm["Frequency"], 5, labels=[1, 2, 3, 4, 5], duplicates='drop').astype(float)
-        rfm["Monetary_Score"] = pd.qcut(rfm["Monetary"], 5, labels=[1, 2, 3, 4, 5], duplicates='drop').astype(float)
-    except Exception:
-        return None
-    rfm["RFM_Score"] = rfm["Recency_Score"] * 100 + rfm["Frequency_Score"] * 10 + rfm["Monetary_Score"]
-
+        rfm["Recency_Score"] = pd.qcut(rfm["Recency"], 5, labels=[5,4,3,2,1], duplicates='drop').astype(float)
+        rfm["Frequency_Score"] = pd.qcut(rfm["Frequency"], 5, labels=[1,2,3,4,5], duplicates='drop').astype(float)
+        rfm["Monetary_Score"] = pd.qcut(rfm["Monetary"], 5, labels=[1,2,3,4,5], duplicates='drop').astype(float)
+    except: return None
+    rfm["RFM_Score"] = rfm["Recency_Score"]*100 + rfm["Frequency_Score"]*10 + rfm["Monetary_Score"]
     def seg(row):
-        r, f, m = row["Recency_Score"], row["Frequency_Score"], row["Monetary_Score"]
-        if r >= 4 and f >= 4 and m >= 4:
-            return "Champions"
-        if r >= 3 and f >= 3:
-            return "Loyal"
-        if r >= 4:
-            return "Recent"
-        if f >= 3:
-            return "Potential"
-        if r <= 2 and f <= 2:
-            return "At Risk"
+        r,f,m = row["Recency_Score"], row["Frequency_Score"], row["Monetary_Score"]
+        if r>=4 and f>=4 and m>=4: return "Champions"
+        if r>=3 and f>=3: return "Loyal"
+        if r>=4: return "Recent"
+        if f>=3: return "Potential"
+        if r<=2 and f<=2: return "At Risk"
         return "Others"
-
     rfm["Segment"] = rfm.apply(seg, axis=1)
     return rfm
 
 def market_basket_analysis(df, customer_col, product_col, min_support=0.01):
     if not MLXTEND_AVAILABLE:
-        return None, None, "mlxtend not installed. Run: pip install mlxtend"
-    basket = (
-        df.groupby([customer_col, product_col])
-        .size()
-        .unstack()
-        .fillna(0)
-        .map(lambda x: 1 if x > 0 else 0)
-    )
+        return None, None, "mlxtend not installed."
+    basket = df.groupby([customer_col, product_col]).size().unstack().fillna(0).map(lambda x: 1 if x > 0 else 0)
     frequent = apriori(basket, min_support=min_support, use_colnames=True)
     if len(frequent) == 0:
-        return None, None, "No frequent itemsets found. Try lowering min_support."
+        return None, None, "No frequent itemsets found."
     rules = association_rules(frequent, metric="lift", min_threshold=1.0)
     return frequent, rules, "Success"
 
-# ========================== LOGIN SECTION ==========================
+# ========================== LOGIN ==========================
 def login_section():
     st.sidebar.markdown("### 🔐 Account")
     if st.session_state.get("logged_in", False):
         role_label = "👑 Admin" if st.session_state.get("is_admin") else "👤 User"
         st.sidebar.success(f"{role_label}: {st.session_state['user_email']}")
         if st.sidebar.button("Logout", key="logout_btn"):
-            st.session_state["logged_in"] = False
-            st.session_state["user_email"] = None
-            st.session_state["is_admin"] = False
+            for k in ["logged_in", "user_email", "is_admin"]:
+                st.session_state[k] = False if k != "user_email" else None
             st.rerun()
         return True
     else:
@@ -1189,10 +1500,8 @@ def login_section():
                 success, is_admin = verify_password(email, pwd)
                 log_login_attempt(email, success)
                 if success:
-                    st.session_state["logged_in"] = True
-                    st.session_state["user_email"] = email
-                    st.session_state["is_admin"] = is_admin
-                    log_system_action(email, "login", "User logged in")
+                    st.session_state.update({"logged_in": True, "user_email": email, "is_admin": is_admin})
+                    log_system_action(email, "login")
                     st.rerun()
                 else:
                     st.error("❌ Invalid credentials")
@@ -1202,15 +1511,15 @@ def login_section():
             if st.button("Register", key="reg_submit"):
                 if not new_email or not new_pwd:
                     st.error("Please fill all fields.")
-                elif register_user(new_email, new_pwd, is_admin=False):
+                elif register_user(new_email, new_pwd):
                     st.success("✅ Account created! Please login.")
-                    log_system_action(new_email, "register", "New user registered")
+                    log_system_action(new_email, "register")
                 else:
                     st.error("⚠️ Email already exists.")
-        st.sidebar.info("💡 Guest mode: limited features (max 1000 rows).")
+        st.sidebar.info("💡 Guest mode: limited to 1000 rows.")
         return False
 
-# ========================== CHATBOT TAB ==========================
+# ========================== FIX #2 + #3: ENHANCED CHATBOT ==========================
 def chatbot_tab():
     deepseek_key = get_setting("deepseek_api_key")
     groq_key = get_setting("groq_api_key")
@@ -1221,491 +1530,372 @@ def chatbot_tab():
     custom_enabled = get_setting("custom_ai_enabled") == "1"
 
     st.markdown("""
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #8b5cf6, #06b6d4); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 28px;">🚀</div>
-        <h1 style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 1.8rem;">NEXUS AI Assistant</h1>
-        <p style="color: #94a3b8;">Powered by DeepSeek, Groq, or your custom AI — Ask me anything</p>
+    <div style="text-align:center; margin-bottom:2rem;">
+        <div style="width:80px;height:80px;background:linear-gradient(135deg,#7c3aed,#06b6d4);
+                    border-radius:50%;display:flex;align-items:center;justify-content:center;
+                    margin:0 auto 1rem;font-size:36px;box-shadow:0 0 40px rgba(124,58,237,0.4);">🚀</div>
+        <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:800;
+                   background:linear-gradient(135deg,#7c3aed,#06b6d4);
+                   -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:0.5rem;">
+            NEXUS AI Assistant
+        </h1>
+        <p style="color:#64748b;font-size:0.95rem;">Powered by DeepSeek · Groq · Custom AI</p>
     </div>
     """, unsafe_allow_html=True)
-    
+
     if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
-        st.session_state.chat_messages.append({
-            "role": "assistant",
-            "content": "Hello! I'm NEXUS AI. How can I help you today? You can ask about your data, platform features, or troubleshooting."
-        })
-    
-    col1, col2 = st.columns([6, 1])
+        st.session_state.chat_messages = [{"role": "assistant", "content": "مرحباً! أنا NEXUS AI 🚀\n\nكيف يمكنني مساعدتك اليوم؟ يمكنك سؤالي عن بياناتك، أو ميزات المنصة، أو أي استفسار تحليلي."}]
+
+    col1, col2 = st.columns([8, 1])
     with col2:
-        if st.button("🗑️ Clear", key="clear_chat"):
-            st.session_state.chat_messages = []
-            st.session_state.chat_messages.append({
-                "role": "assistant",
-                "content": "Chat cleared! How can I help you today?"
-            })
+        if st.button("🗑️ مسح", key="clear_chat"):
+            st.session_state.chat_messages = [{"role": "assistant", "content": "تم مسح المحادثة! كيف يمكنني مساعدتك؟"}]
             st.rerun()
-    
+
+    # FIX #2: Use st.chat_message for proper auto-expanding bubbles
     for msg in st.session_state.chat_messages:
-        if msg["role"] == "user":
-            st.markdown(f"""
-            <div class="chat-message user">
-                <div class="avatar">👤</div>
-                <div class="chat-bubble">{msg['content']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="chat-message assistant">
-                <div class="avatar">🤖</div>
-                <div class="chat-bubble">{msg['content']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    prompt = st.chat_input("Ask me about your data or the platform...")
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    prompt = st.chat_input("اسألني عن بياناتك أو المنصة...")
     if prompt:
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
-        current_df = st.session_state.get("df", None)
-        
+
         has_key = (provider == "deepseek" and deepseek_key) or \
                   (provider == "groq" and groq_key) or \
                   (provider == "custom" and custom_enabled and custom_key)
+
         if not has_key:
-            error_msg = "⚠️ No AI API keys configured. Please ask the administrator to set up DeepSeek, Groq, or a custom AI in the Admin Settings."
+            error_msg = "⚠️ لم يتم تكوين مفاتيح AI API. يرجى التواصل مع المسؤول لإعداد DeepSeek أو Groq أو Custom AI في لوحة الإدارة."
             st.session_state.chat_messages.append({"role": "assistant", "content": error_msg})
             with st.chat_message("assistant"):
                 st.markdown(error_msg)
         else:
-            with st.spinner("Thinking..."):
-                response, error = get_chatbot_response(
-                    prompt, provider, deepseek_key, groq_key,
-                    custom_url if custom_enabled else "",
-                    custom_key if custom_enabled else "",
-                    custom_model if custom_enabled else "",
-                    st.session_state.chat_messages[:-1], current_df
-                )
-                if error:
-                    response_text = f"Sorry, an error occurred: {error}"
-                else:
-                    response_text = response
-                st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
-                with st.chat_message("assistant"):
+            with st.chat_message("assistant"):
+                with st.spinner("جاري التفكير..."):
+                    current_df = st.session_state.get("df")
+                    response, error = get_chatbot_response(
+                        prompt, provider, deepseek_key, groq_key,
+                        custom_url if custom_enabled else "",
+                        custom_key if custom_enabled else "",
+                        custom_model if custom_enabled else "",
+                        st.session_state.chat_messages[:-1], current_df
+                    )
+                    response_text = f"عذراً، حدث خطأ: {error}" if error else response
                     st.markdown(response_text)
-        st.rerun()
+                    st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
 
-# ========================== MEGA ADMIN DASHBOARD ==========================
+# ========================== ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
     if not st.session_state.get("is_admin", False):
         st.error("Access denied. Admins only.")
         return
 
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #1e293b 0%, #4f46e5 50%, #06b6d4 100%);
-         border-radius: 24px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;">
-        <h1 style="color: white; font-size: 1.6rem; font-weight: 800; background: none; margin-bottom: 0.5rem;">
-            🛡️ NEXUS Admin Control Center
+    <div class="admin-hero">
+        <h1 style="font-family:'Orbitron',sans-serif;color:white;font-size:2rem;font-weight:800;margin-bottom:0.5rem;">
+            🛡️ NEXUS Control Center
         </h1>
-        <p style="color: rgba(255,255,255,0.8); font-size: 0.9rem;">Full system visibility · User management · Activity monitoring</p>
+        <p style="color:rgba(255,255,255,0.7);font-size:1rem;">Full system visibility · User management · Activity monitoring</p>
     </div>
     """, unsafe_allow_html=True)
 
     stats = get_stats()
-
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    with c1:
-        st.metric("👥 Users", stats["total_users"])
-    with c2:
-        st.metric("👑 Admins", stats["total_admins"])
-    with c3:
-        st.metric("✅ Today", stats["today_logins"])
-    with c4:
-        st.metric("🔢 All-Time", stats["total_success_logins"])
-    with c5:
-        st.metric("❌ Failed", stats["total_failed_logins"])
-    with c6:
-        st.metric("📋 Actions", stats["total_actions"])
+    cols = st.columns(6)
+    metrics = [("👥 Users", stats["total_users"]), ("👑 Admins", stats["total_admins"]),
+               ("✅ Today", stats["today_logins"]), ("🔢 All-Time", stats["total_success_logins"]),
+               ("❌ Failed", stats["total_failed_logins"]), ("📋 Actions", stats["total_actions"])]
+    for col, (label, val) in zip(cols, metrics):
+        col.metric(label, val)
 
     st.markdown("---")
-
-    admin_tabs = st.tabs([
-        "📊 Overview", "👤 Users", "📋 Logs", "📋 Subs", "💰 Plans", "⚙️ Settings", "📈 Analytics"
-    ])
+    admin_tabs = st.tabs(["📊 Overview","👤 Users","📋 Logs","📋 Subs","💰 Plans","⚙️ Settings","📈 Analytics"])
 
     with admin_tabs[0]:
         sec_header("OVERVIEW", "Platform Health", "Real-time insights")
         logs = get_login_logs(limit=500)
         if logs:
-            df_logs = pd.DataFrame(logs, columns=["email", "success", "timestamp"])
+            df_logs = pd.DataFrame(logs, columns=["email","success","timestamp"])
             df_logs["timestamp"] = pd.to_datetime(df_logs["timestamp"])
             df_logs["date"] = df_logs["timestamp"].dt.date
             col1, col2 = st.columns(2)
             with col1:
-                login_counts = df_logs.groupby(["date", "success"]).size().reset_index(name="count")
-                login_counts["status"] = login_counts["success"].map({1: "✅ Success", 0: "❌ Failed"})
-                fig = px.area(login_counts, x="date", y="count", color="status", title="Login Activity",
-                              color_discrete_map={"✅ Success": "#10b981", "❌ Failed": "#ef4444"})
-                fig = apply_plot_style(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                lc = df_logs.groupby(["date","success"]).size().reset_index(name="count")
+                lc["status"] = lc["success"].map({1:"✅ Success",0:"❌ Failed"})
+                fig = px.area(lc, x="date", y="count", color="status", title="Login Activity", color_discrete_map={"✅ Success":"#10b981","❌ Failed":"#ef4444"})
+                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
             with col2:
-                success_rate = df_logs["success"].sum() / len(df_logs) * 100 if len(df_logs) > 0 else 0
-                fig3 = go.Figure(go.Indicator(mode="gauge+number", value=round(success_rate, 1),
-                                              title={"text": "Login Success Rate (%)"},
-                                              gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#8b5cf6"}}))
-                fig3 = apply_plot_style(fig3)
-                st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("No login data yet.")
+                success_rate = df_logs["success"].sum()/len(df_logs)*100 if len(df_logs) > 0 else 0
+                fig3 = go.Figure(go.Indicator(mode="gauge+number", value=round(success_rate,1), title={"text":"Login Success Rate (%)"},
+                                              gauge={"axis":{"range":[0,100]},"bar":{"color":"#7c3aed"},"steps":[{"range":[0,50],"color":"#1e293b"},{"range":[50,100],"color":"#111827"}]}))
+                st.plotly_chart(apply_plot_style(fig3), use_container_width=True)
 
     with admin_tabs[1]:
         sec_header("USERS", "User Management", "Create · Edit · Delete · Promote")
         users = get_all_users()
         if users:
-            df_users = pd.DataFrame(users, columns=["ID", "Email", "Is Admin", "Created At", "Last Login"])
-            df_users["Role"] = df_users["Is Admin"].map({1: "👑 Admin", 0: "👤 User"})
-            df_users["Created At"] = pd.to_datetime(df_users["Created At"]).dt.strftime("%Y-%m-%d")
-            df_users["Last Login"] = pd.to_datetime(df_users["Last Login"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
-            st.dataframe(df_users[["ID", "Email", "Role", "Created At", "Last Login"]], use_container_width=True)
-        
+            df_u = pd.DataFrame(users, columns=["ID","Email","Is Admin","Created At","Last Login"])
+            df_u["Role"] = df_u["Is Admin"].map({1:"👑 Admin",0:"👤 User"})
+            df_u["Created At"] = pd.to_datetime(df_u["Created At"]).dt.strftime("%Y-%m-%d")
+            df_u["Last Login"] = pd.to_datetime(df_u["Last Login"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
+            st.dataframe(df_u[["ID","Email","Role","Created At","Last Login"]], use_container_width=True)
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+        col1,col2,col3 = st.columns(3)
         with col1:
             uid_del = st.number_input("User ID to Delete", min_value=1, step=1)
-            if st.button("Delete User"):
-                delete_user(uid_del)
-                st.success(f"User {uid_del} deleted.")
-                st.rerun()
+            if st.button("🗑️ Delete User"):
+                delete_user(uid_del); st.success(f"User {uid_del} deleted."); st.rerun()
         with col2:
-            uid_toggle = st.number_input("User ID to Toggle Admin", min_value=1, step=1)
+            uid_toggle = st.number_input("User ID for Admin Toggle", min_value=1, step=1)
             make_ad = st.checkbox("Grant Admin?")
-            if st.button("Toggle Admin"):
-                toggle_admin(uid_toggle, make_ad)
-                st.success(f"Admin {'granted' if make_ad else 'revoked'} for user {uid_toggle}.")
-                st.rerun()
+            if st.button("🔄 Toggle Admin"):
+                toggle_admin(uid_toggle, make_ad); st.success(f"Admin {'granted' if make_ad else 'revoked'}."); st.rerun()
         with col3:
-            uid_reset = st.number_input("User ID to Reset Password", min_value=1, step=1)
+            uid_reset = st.number_input("User ID to Reset Pwd", min_value=1, step=1)
             new_pass = st.text_input("New Password", type="password")
-            if st.button("Reset Password"):
-                if new_pass:
-                    reset_user_password(uid_reset, new_pass)
-                    st.success(f"Password reset for user {uid_reset}.")
-        
-        st.markdown("---")
-        st.markdown("#### Promote User to Admin")
-        new_admin_email = st.text_input("Email to promote")
-        if st.button("Promote to Admin"):
-            if new_admin_email:
-                success, msg = add_admin_by_email(new_admin_email)
-                st.success(msg) if success else st.error(msg)
-                st.rerun()
-        
-        st.markdown("#### Register New User")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            new_email = st.text_input("Email")
-        with col2:
-            new_passw = st.text_input("Password", type="password")
-        with col3:
-            is_ad = st.checkbox("Make Admin")
-            if st.button("Create User"):
-                if new_email and new_passw:
-                    if register_user(new_email, new_passw, is_admin=is_ad):
-                        st.success(f"User {new_email} created.")
-                        st.rerun()
-                    else:
-                        st.error("Email already exists.")
-                else:
-                    st.error("Fill all fields.")
+            if st.button("🔑 Reset Password"):
+                if new_pass: reset_user_password(uid_reset, new_pass); st.success("Password reset!")
 
     with admin_tabs[2]:
         sec_header("LOGS", "Activity Logs", "Audit trail")
-        col1, col2 = st.columns(2)
+        col1,col2 = st.columns(2)
         with col1:
             logs = get_login_logs(limit=300)
             if logs:
-                df_login = pd.DataFrame(logs, columns=["Email", "Success", "Timestamp"])
-                df_login["Status"] = df_login["Success"].map({1: "✅ Success", 0: "❌ Failed"})
-                st.dataframe(df_login[["Email", "Status", "Timestamp"]], use_container_width=True, height=400)
+                df_login = pd.DataFrame(logs, columns=["Email","Success","Timestamp"])
+                df_login["Status"] = df_login["Success"].map({1:"✅ Success",0:"❌ Failed"})
+                st.dataframe(df_login[["Email","Status","Timestamp"]], use_container_width=True, height=400)
         with col2:
             sys_logs = get_system_logs(limit=300)
             if sys_logs:
-                df_sys = pd.DataFrame(sys_logs, columns=["User", "Action", "Details", "Timestamp"])
+                df_sys = pd.DataFrame(sys_logs, columns=["User","Action","Details","Timestamp"])
                 st.dataframe(df_sys, use_container_width=True, height=400)
 
     with admin_tabs[3]:
-        sec_header("SUBSCRIPTIONS", "Manage User Plans", "Upgrade, downgrade, extend")
+        sec_header("SUBSCRIPTIONS", "Manage User Plans")
         subs = get_all_subscriptions()
         if subs:
             df_subs = pd.DataFrame(subs)
-            if "start_date" in df_subs.columns:
-                df_subs["start_date"] = pd.to_datetime(df_subs["start_date"]).dt.strftime("%Y-%m-%d")
-            if "end_date" in df_subs.columns:
-                df_subs["end_date"] = pd.to_datetime(df_subs["end_date"]).dt.strftime("%Y-%m-%d")
+            for dc in ["start_date","end_date"]:
+                if dc in df_subs.columns:
+                    df_subs[dc] = pd.to_datetime(df_subs[dc]).dt.strftime("%Y-%m-%d")
             st.dataframe(df_subs, use_container_width=True)
-        
         st.markdown("---")
-        col1, col2 = st.columns(2)
+        col1,col2 = st.columns(2)
         with col1:
-            user_id_up = st.number_input("User ID", min_value=1, step=1, key="sub_user")
+            uid_up = st.number_input("User ID", min_value=1, step=1, key="sub_user")
             plans = get_available_plans()
             plan_opts = {p["name"]: p["id"] for p in plans}
             plan_name = st.selectbox("Plan", list(plan_opts.keys()))
             duration = st.selectbox("Duration (months)", [1,3,6,12])
-            if st.button("Upgrade User"):
-                if upgrade_subscription(user_id_up, plan_opts[plan_name], duration):
-                    st.success(f"User {user_id_up} upgraded to {plan_name}.")
-                    st.rerun()
+            if st.button("⬆️ Upgrade User"):
+                if upgrade_subscription(uid_up, plan_opts[plan_name], duration):
+                    st.success(f"User {uid_up} → {plan_name}"); st.rerun()
         with col2:
-            user_id_ext = st.number_input("User ID to Extend", min_value=1, step=1, key="ext_user")
+            uid_ext = st.number_input("User ID to Extend", min_value=1, step=1, key="ext_user")
             extra = st.number_input("Extra months", min_value=1, max_value=12, value=1)
-            if st.button("Extend Subscription"):
-                if extend_subscription(user_id_ext, extra):
-                    st.success(f"Extended by {extra} months.")
-                    st.rerun()
-            if st.button("Cancel Subscription (Revert to Free)"):
-                cancel_subscription(user_id_ext)
-                st.success(f"Subscription cancelled for user {user_id_ext}.")
-                st.rerun()
-        
+            if st.button("📅 Extend"):
+                if extend_subscription(uid_ext, extra): st.success(f"Extended {extra} months."); st.rerun()
+            if st.button("❌ Cancel → Free"):
+                cancel_subscription(uid_ext); st.success("Cancelled."); st.rerun()
         plan_counts, monthly_revenue = get_subscription_stats()
-        st.metric("💰 Monthly Recurring Revenue (MRR)", f"${monthly_revenue:,.2f}")
-        for plan, cnt in plan_counts.items():
-            st.write(f"- {plan}: {cnt} users")
+        st.metric("💰 Monthly Revenue (MRR)", f"${monthly_revenue:,.2f}")
 
     with admin_tabs[4]:
-        sec_header("PLANS", "Edit Subscription Plans", "Prices, limits, features")
-        all_plans = get_all_plans()
-        for plan in all_plans:
-            with st.expander(f"✏️ Edit {plan['name']}"):
-                new_price_m = st.number_input(f"Monthly Price (${plan['name']})", value=float(plan['price_monthly']), step=1.0, key=f"pm_{plan['id']}")
-                new_price_y = st.number_input(f"Yearly Price (${plan['name']})", value=float(plan['price_yearly']), step=10.0, key=f"py_{plan['id']}")
-                new_rows = st.number_input(f"Max Rows", value=int(plan['max_rows']), step=1000, key=f"rows_{plan['id']}")
-                new_feat = st.text_area(f"Features", value=plan['features'], height=100, key=f"feat_{plan['id']}")
-                if st.button(f"Update {plan['name']}", key=f"upd_{plan['id']}"):
-                    update_plan(plan['id'], new_price_m, new_price_y, new_rows, new_feat)
-                    st.success(f"{plan['name']} updated.")
-                    st.rerun()
+        sec_header("PLANS", "Edit Subscription Plans")
+        for plan in get_all_plans():
+            with st.expander(f"✏️ {plan['name']}"):
+                c1,c2,c3 = st.columns(3)
+                with c1: pm = st.number_input("Monthly $", value=float(plan['price_monthly']), key=f"pm_{plan['id']}")
+                with c2: py = st.number_input("Yearly $", value=float(plan['price_yearly']), key=f"py_{plan['id']}")
+                with c3: rows = st.number_input("Max Rows", value=int(plan['max_rows']), step=1000, key=f"rows_{plan['id']}")
+                feat = st.text_area("Features", value=plan['features'], key=f"feat_{plan['id']}")
+                if st.button(f"💾 Update {plan['name']}", key=f"upd_{plan['id']}"):
+                    update_plan(plan['id'], pm, py, rows, feat); st.success("Updated!"); st.rerun()
 
     with admin_tabs[5]:
-        sec_header("SETTINGS", "System Configuration", "API Keys & Limits (Admin only)")
-        
-        st.markdown("#### 🤖 AI Provider Configuration")
+        sec_header("SETTINGS", "System Configuration")
         current_provider = get_setting("ai_provider", "deepseek")
-        custom_enabled = get_setting("custom_ai_enabled") == "1"
-        
-        provider_options = ["deepseek", "groq"]
-        if custom_enabled:
-            provider_options.append("custom")
-        provider_choice = st.selectbox("Primary AI Provider", provider_options, index=provider_options.index(current_provider) if current_provider in provider_options else 0)
-        
-        current_deepseek = get_setting("deepseek_api_key")
-        new_deepseek = st.text_input("DeepSeek API Key", type="password", value=current_deepseek, key="ds_key")
-        
-        current_groq = get_setting("groq_api_key")
-        new_groq = st.text_input("Groq API Key (free tier)", type="password", value=current_groq, key="groq_key")
-        
+        custom_enabled_val = get_setting("custom_ai_enabled") == "1"
+        provider_opts = ["deepseek","groq"] + (["custom"] if custom_enabled_val else [])
+        provider_choice = st.selectbox("Primary AI Provider", provider_opts, index=provider_opts.index(current_provider) if current_provider in provider_opts else 0)
+        new_ds = st.text_input("DeepSeek API Key", type="password", value=get_setting("deepseek_api_key"))
+        new_groq = st.text_input("Groq API Key", type="password", value=get_setting("groq_api_key"))
         st.markdown("---")
         st.markdown("#### 🔌 Custom AI (OpenAI-compatible)")
-        enable_custom = st.checkbox("Enable Custom AI", value=custom_enabled)
-        custom_url = st.text_input("Custom API URL", value=get_setting("custom_ai_url"), placeholder="https://api.openai.com/v1/chat/completions")
-        custom_key = st.text_input("Custom API Key", type="password", value=get_setting("custom_ai_api_key"), placeholder="sk-...")
-        custom_model = st.text_input("Model Name", value=get_setting("custom_ai_model"), placeholder="gpt-3.5-turbo")
-        
+        enable_custom = st.checkbox("Enable Custom AI", value=custom_enabled_val)
+        custom_url = st.text_input("Custom API URL", value=get_setting("custom_ai_url"))
+        custom_key = st.text_input("Custom API Key", type="password", value=get_setting("custom_ai_api_key"))
+        custom_model_val = st.text_input("Model Name", value=get_setting("custom_ai_model"))
         if st.button("💾 Save AI Settings"):
-            set_setting("deepseek_api_key", new_deepseek)
+            set_setting("deepseek_api_key", new_ds)
             set_setting("groq_api_key", new_groq)
             set_setting("ai_provider", provider_choice)
             set_setting("custom_ai_enabled", "1" if enable_custom else "0")
             if enable_custom:
                 set_setting("custom_ai_url", custom_url)
                 set_setting("custom_ai_api_key", custom_key)
-                set_setting("custom_ai_model", custom_model)
-            st.success("AI settings saved. Chatbot will use these keys.")
-            st.rerun()
-        st.caption("DeepSeek and Groq are built-in. Custom AI allows you to connect to any OpenAI-compatible endpoint (e.g., OpenAI, Azure, local LLM). The system will fallback to other providers if the primary fails.")
-        
-        st.markdown("---")
-        st.markdown("#### 📁 Upload Limit")
-        new_limit = st.number_input("Max Upload Size (MB)", min_value=100, max_value=1000, value=MAX_FILE_SIZE_MB, step=50)
-        if st.button("Apply New Limit"):
-            try:
-                CONFIG_DIR.mkdir(exist_ok=True)
-                with open(CONFIG_FILE, "w") as f:
-                    f.write(f"[server]\nmaxUploadSize = {new_limit}\n")
-                st.success(f"Upload limit set to {new_limit} MB. Restart app to apply.")
-            except Exception as e:
-                st.error(f"Error: {e}")
-        
+                set_setting("custom_ai_model", custom_model_val)
+            st.success("AI settings saved!"); st.rerun()
         st.markdown("---")
         if st.button("🧹 Clear All Cache"):
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            st.success("Cache cleared. Refresh page.")
-        
-        db_size = os.path.getsize(DB_PATH) / (1024 * 1024) if os.path.exists(DB_PATH) else 0
+            st.cache_data.clear(); st.cache_resource.clear(); st.success("Cache cleared.")
+        db_size = os.path.getsize(DB_PATH)/(1024*1024) if os.path.exists(DB_PATH) else 0
         st.metric("Database Size", f"{db_size:.3f} MB")
 
     with admin_tabs[6]:
-        sec_header("ANALYTICS", "Platform Usage", "User behavior insights")
+        sec_header("ANALYTICS", "Platform Usage")
         sys_logs = get_system_logs(limit=500)
         if sys_logs:
-            df_sys = pd.DataFrame(sys_logs, columns=["User", "Action", "Details", "Timestamp"])
+            df_sys = pd.DataFrame(sys_logs, columns=["User","Action","Details","Timestamp"])
             df_sys["Timestamp"] = pd.to_datetime(df_sys["Timestamp"])
             df_sys["date"] = df_sys["Timestamp"].dt.date
-            col1, col2 = st.columns(2)
+            col1,col2 = st.columns(2)
             with col1:
-                action_counts = df_sys["Action"].value_counts().reset_index()
-                action_counts.columns = ["Action", "Count"]
-                fig = px.pie(action_counts, names="Action", values="Count", title="Action Distribution")
-                fig = apply_plot_style(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                ac = df_sys["Action"].value_counts().reset_index(); ac.columns = ["Action","Count"]
+                fig = px.pie(ac, names="Action", values="Count", title="Action Distribution")
+                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
             with col2:
                 daily = df_sys.groupby("date").size().reset_index(name="actions")
                 fig2 = px.bar(daily, x="date", y="actions", title="Daily Activity")
-                fig2 = apply_plot_style(fig2)
-                st.plotly_chart(fig2, use_container_width=True)
-            top_users = df_sys.groupby("User").size().reset_index(name="actions").sort_values("actions", ascending=False).head(10)
-            fig3 = px.bar(top_users, x="User", y="actions", title="Most Active Users")
-            fig3 = apply_plot_style(fig3)
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("No analytics data yet.")
+                st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
 
-# ========================== SUBSCRIPTION PLANS TAB ==========================
+# ========================== SUBSCRIPTION TAB ==========================
 def subscription_plans_tab():
     sec_header("PLANS", "Choose Your Plan", "Upgrade for full features")
     if not st.session_state.get("logged_in", False):
         st.info("Please login to view and subscribe to plans.")
         return
-    user_email = st.session_state["user_email"]
-    user = get_user_by_email(user_email)
-    if not user:
-        st.error("User not found.")
-        return
+    user = get_user_by_email(st.session_state["user_email"])
+    if not user: st.error("User not found."); return
     current_sub = get_user_subscription(user["id"])
     if current_sub:
-        st.info(f"**Current Plan:** {current_sub['name']} | Max rows: {current_sub['max_rows']:,} | Features: {current_sub['features']}")
-    
+        st.info(f"**Current Plan:** {current_sub['name']} | Max rows: {current_sub['max_rows']:,}")
     plans = get_available_plans()
     cols = st.columns(len(plans))
     for idx, plan in enumerate(plans):
         with cols[idx]:
+            is_featured = plan['name'] == 'Pro'
+            card_class = "plan-card featured" if is_featured else "plan-card"
             st.markdown(f"""
-            <div style="background: #1e293b; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; margin-bottom: 1rem;">
-                <h3 style="margin-bottom: 0.5rem; color:#f1f5f9;">{plan['name']}</h3>
-                <p style="font-size: 1.5rem; font-weight: 800; color: #8b5cf6;">${plan['price_monthly']:.2f}<span style="font-size: 0.9rem;">/month</span></p>
-                <p style="font-size: 0.8rem; color:#94a3b8;">or ${plan['price_yearly']:.2f}/year</p>
-                <hr style="border-color:#334155;">
-                <p>📊 Max rows: {plan['max_rows']:,}</p>
-                <p>✨ {plan['features'][:80]}...</p>
+            <div class="{card_class}">
+                <h3 style="font-family:'Orbitron',sans-serif;color:#f1f5f9;font-size:1.2rem;">{plan['name']}</h3>
+                <p style="font-size:2.5rem;font-weight:800;background:linear-gradient(135deg,#7c3aed,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent;">
+                    ${plan['price_monthly']:.2f}<span style="font-size:1rem;color:#94a3b8;">/mo</span>
+                </p>
+                <p style="color:#64748b;font-size:0.85rem;">${plan['price_yearly']:.2f}/year</p>
+                <hr style="border-color:#1e293b;margin:1rem 0;">
+                <p style="color:#94a3b8;font-size:0.9rem;">📊 Max: {plan['max_rows']:,} rows</p>
+                <p style="color:#94a3b8;font-size:0.8rem;">{plan['features'][:80]}...</p>
             </div>
             """, unsafe_allow_html=True)
-            if plan['name'] != current_sub['name']:
-                if st.session_state.get("is_admin", False):
-                    if st.button(f"Assign {plan['name']}", key=f"admin_assign_{plan['id']}"):
-                        if upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="admin_manual"):
-                            st.success(f"Assigned {plan['name']} to {user_email}.")
-                            st.rerun()
-                else:
-                    with st.form(key=f"payment_form_{plan['id']}"):
-                        st.caption("💳 Payment Simulation")
-                        card = st.text_input("Card Number", placeholder="4242 4242 4242 4242", key=f"card_{plan['id']}")
-                        exp = st.text_input("Expiry (MM/YY)", placeholder="12/25", key=f"exp_{plan['id']}")
-                        cvv = st.text_input("CVV", type="password", placeholder="123", key=f"cvv_{plan['id']}")
-                        name = st.text_input("Cardholder Name", key=f"name_{plan['id']}")
-                        if st.form_submit_button(f"Subscribe - ${plan['price_monthly']}/month"):
-                            if card and exp and cvv and name:
-                                if upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated_card"):
-                                    st.success(f"Subscribed to {plan['name']}!")
-                                    st.rerun()
-                                else:
-                                    st.error("Upgrade failed.")
-                            else:
-                                st.error("Fill all fields.")
+            if plan['name'] != (current_sub['name'] if current_sub else ''):
+                if st.button(f"Subscribe to {plan['name']}", key=f"sub_{plan['id']}"):
+                    if upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated"):
+                        st.success(f"Subscribed to {plan['name']}!"); st.rerun()
             else:
-                st.button("Current Plan", disabled=True)
+                st.button("✅ Current Plan", disabled=True, key=f"current_{plan['id']}")
 
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
-    if "df" not in st.session_state:
-        st.session_state["df"] = None
-        st.session_state["roles"] = None
-        st.session_state["source"] = None
-        st.session_state["col_map"] = {}
+    for k in ["df","roles","source","col_map"]:
+        if k not in st.session_state:
+            st.session_state[k] = None if k != "col_map" else {}
 
     user_plan = None
     if st.session_state.get("logged_in", False):
         user = get_user_by_email(st.session_state["user_email"])
         if user:
             user_plan = get_user_subscription(user["id"])
-    
+
     with st.sidebar:
-        st.markdown("## 🚀 NEXUS Analytics")
-        if st.session_state.get("logged_in", False):
-            st.markdown(f"👤 **{st.session_state['user_email']}**")
-            if user_plan:
-                st.caption(f"📋 Plan: {user_plan['name']} (Max rows: {user_plan['max_rows']:,})")
-            else:
-                st.caption("📋 Plan: Free (Max rows: 1000)")
+        st.markdown("""
+        <div style="text-align:center;padding:1rem 0;border-bottom:1px solid #1e293b;margin-bottom:1rem;">
+            <div style="font-family:'Orbitron',sans-serif;font-size:1.1rem;font-weight:800;
+                        background:linear-gradient(135deg,#7c3aed,#06b6d4);
+                        -webkit-background-clip:text;background-clip:text;color:transparent;">
+                🚀 NEXUS Analytics
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.session_state.get("logged_in"):
+            plan_name = user_plan['name'] if user_plan else 'Free'
+            max_rows = user_plan['max_rows'] if user_plan else 1000
+            st.markdown(f"""
+            <div style="background:rgba(124,58,237,0.1);border:1px solid rgba(124,58,237,0.3);
+                        border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;">
+                <div style="font-size:0.8rem;color:#94a3b8;">👤 {st.session_state['user_email']}</div>
+                <div style="font-size:0.75rem;color:#7c3aed;font-weight:600;margin-top:4px;">
+                    📋 {plan_name} · {max_rows:,} rows
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            st.markdown("👤 **Guest Mode** (Limited to 1000 rows)")
-        st.markdown("---")
+            st.markdown("""
+            <div style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);
+                        border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;">
+                <div style="font-size:0.85rem;color:#06b6d4;">👤 Guest Mode</div>
+                <div style="font-size:0.75rem;color:#64748b;">Max 1,000 rows</div>
+            </div>
+            """, unsafe_allow_html=True)
+
         st.markdown("### 📂 Data Source")
-        source = st.radio("", ["📦 Built-in Dataset", "📂 Upload File"], label_visibility="collapsed", key="data_source")
+        source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
 
         if source == "📂 Upload File":
-            uploaded = st.file_uploader(f"CSV / Excel / JSON (Max {MAX_FILE_SIZE_MB} MB)", type=["csv", "xlsx", "xls", "json"], key="file_upload")
+            uploaded = st.file_uploader(f"CSV / Excel / JSON", type=["csv","xlsx","xls","json"], key="file_upload")
             if uploaded:
                 if uploaded.size > MAX_FILE_SIZE_BYTES:
                     st.error(f"File exceeds {MAX_FILE_SIZE_MB} MB.")
                 else:
-                    progress_bar = st.progress(0)
                     try:
                         if uploaded.name.endswith('.csv'):
                             try:
                                 df_new, used_enc = read_csv_with_encoding(uploaded)
-                                st.success(f"Loaded ({used_enc})")
+                                st.success(f"✅ Loaded ({used_enc})")
                             except:
-                                manual_enc = st.selectbox("Encoding", ['utf-8', 'windows-1256', 'iso-8859-1', 'cp1252'])
+                                manual_enc = st.selectbox("Encoding", ['utf-8','windows-1256','iso-8859-1','cp1252'])
                                 uploaded.seek(0)
                                 df_new = pd.read_csv(uploaded, encoding=manual_enc)
-                                st.success(f"Loaded ({manual_enc})")
+                                st.success(f"✅ Loaded ({manual_enc})")
                         elif uploaded.name.endswith('.json'):
                             df_new = pd.read_json(uploaded)
                         else:
                             df_new = pd.read_excel(uploaded)
-                        progress_bar.progress(100)
+
                         max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
                         if len(df_new) > max_allowed:
-                            st.error(f"Dataset has {len(df_new):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use smaller file.")
+                            st.error(f"⚠️ {len(df_new):,} rows > {max_allowed:,} limit. Upgrade plan.")
                         else:
                             if st.session_state["source"] != uploaded.name:
-                                st.session_state["df_raw"] = df_new
-                                st.session_state["roles"] = detect_column_types(df_new)
-                                st.session_state["df"] = smart_clean(df_new, st.session_state["roles"])
-                                st.session_state["source"] = uploaded.name
-                                st.session_state["col_map"] = {}
-                                log_system_action(st.session_state.get("user_email", "guest"), "upload_file", f"Uploaded {uploaded.name}")
-                            st.success(f"Loaded {uploaded.name}")
+                                roles = detect_column_types(df_new)
+                                df_clean = smart_clean(df_new, roles)
+                                st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name, "col_map": {}})
+                                log_system_action(st.session_state.get("user_email","guest"), "upload_file", uploaded.name)
+                            
+                            # FIX #1: Show detected date columns
+                            date_cols = st.session_state["roles"].get("date", [])
+                            if date_cols:
+                                st.success(f"📅 Date columns detected: {', '.join(date_cols)}")
+                            else:
+                                st.warning("⚠️ No date columns detected. Check column mapping below.")
                     except Exception as e:
                         st.error(f"Error: {e}")
-                    finally:
-                        progress_bar.empty()
         else:
             if st.session_state["source"] != "builtin":
                 df_bi = load_builtin_dataset()
                 max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
                 if len(df_bi) > max_allowed:
-                    st.error(f"Built-in dataset has {len(df_bi):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use a smaller file.")
+                    st.error(f"Dataset {len(df_bi):,} rows > {max_allowed:,} limit.")
                 else:
-                    st.session_state["df_raw"] = df_bi
-                    st.session_state["roles"] = detect_column_types(df_bi)
-                    st.session_state["df"] = smart_clean(df_bi, st.session_state["roles"])
-                    st.session_state["source"] = "builtin"
-                    st.session_state["col_map"] = {}
-                    log_system_action(st.session_state.get("user_email", "guest"), "load_builtin", "Loaded built-in dataset")
-                st.success("Built-in dataset ready")
+                    roles = detect_column_types(df_bi)
+                    df_clean = smart_clean(df_bi, roles)
+                    st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin", "col_map": {}})
+                    log_system_action(st.session_state.get("user_email","guest"), "load_builtin")
+                st.success("✅ Built-in dataset ready")
 
         df = st.session_state.get("df")
         if df is not None:
@@ -1721,247 +1911,242 @@ def render_analytics_app():
             def safe_index(lst, val):
                 return lst.index(val) if val in lst else 0
 
-            cm["sales"] = st.selectbox("💰 Sales", num_c, index=safe_index(num_c, cm.get("sales", "—")), key="map_sales")
-            cm["profit"] = st.selectbox("📈 Profit", num_c, index=safe_index(num_c, cm.get("profit", "—")), key="map_profit")
-            cm["date"] = st.selectbox("📅 Date", date_c, index=safe_index(date_c, cm.get("date", "—")), key="map_date")
-            cm["category"] = st.selectbox("🏷️ Category", cat_c, index=safe_index(cat_c, cm.get("category", "—")), key="map_cat")
-            cm["customer"] = st.selectbox("👤 Customer ID", id_c, index=safe_index(id_c, cm.get("customer", "—")), key="map_cust")
-            cm["product"] = st.selectbox("📦 Product (Basket)", cat_c, index=safe_index(cat_c, cm.get("product", "—")), key="map_prod")
+            # FIX #1: Auto-detect and pre-fill column mapping
+            if not cm and roles:
+                # محاولة تخمين أعمدة تلقائياً
+                for col in df.columns:
+                    col_lower = col.lower()
+                    if any(kw in col_lower for kw in ['sales','revenue','amount','price','total']) and col in num_c:
+                        cm['sales'] = col
+                    elif any(kw in col_lower for kw in ['profit','income','earning']) and col in num_c:
+                        cm['profit'] = col
+                    elif col in date_c and cm.get('date','—') == '—':
+                        cm['date'] = col
+                    elif any(kw in col_lower for kw in ['category','type','class','segment','product']) and col in cat_c:
+                        if cm.get('category','—') == '—': cm['category'] = col
+                    elif any(kw in col_lower for kw in ['customer','client','user','id']) and col in id_c:
+                        if cm.get('customer','—') == '—': cm['customer'] = col
+
+            cm["sales"] = st.selectbox("💰 Sales", num_c, index=safe_index(num_c, cm.get("sales","—")), key="map_sales")
+            cm["profit"] = st.selectbox("📈 Profit", num_c, index=safe_index(num_c, cm.get("profit","—")), key="map_profit")
+            cm["date"] = st.selectbox("📅 Date", date_c, index=safe_index(date_c, cm.get("date","—")), key="map_date")
+            cm["category"] = st.selectbox("🏷️ Category", cat_c, index=safe_index(cat_c, cm.get("category","—")), key="map_cat")
+            cm["customer"] = st.selectbox("👤 Customer ID", id_c, index=safe_index(id_c, cm.get("customer","—")), key="map_cust")
+            cm["product"] = st.selectbox("📦 Product", cat_c, index=safe_index(cat_c, cm.get("product","—")), key="map_prod")
             st.session_state["col_map"] = cm
 
     df = st.session_state.get("df")
     if df is None:
-        st.info("👈 Please load data from the sidebar to get started.")
+        st.markdown("""
+        <div style="text-align:center;padding:5rem 2rem;">
+            <div style="font-size:5rem;margin-bottom:1.5rem;">📊</div>
+            <h2 style="font-family:'Orbitron',sans-serif;color:#7c3aed;margin-bottom:1rem;">Welcome to NEXUS Analytics Pro</h2>
+            <p style="color:#64748b;font-size:1.1rem;">Load data from the sidebar to get started</p>
+        </div>
+        """, unsafe_allow_html=True)
         return
 
-    is_pro_or_enterprise = False
-    if user_plan and user_plan['name'] in ['Pro', 'Enterprise']:
-        is_pro_or_enterprise = True
-    elif not st.session_state.get("logged_in", False):
-        is_pro_or_enterprise = False
+    is_pro = user_plan and user_plan['name'] in ['Pro', 'Enterprise']
 
-    tabs = st.tabs([
-        "📊 Data", "💰 KPIs", "🔮 Forecast", "🤖 Optimizer",
-        "👥 Segments", "🛒 Basket", "📈 Advanced", "📄 Report", "💎 Plans", "💬 AI"
-    ])
+    tabs = st.tabs(["📊 Data","💰 KPIs","🔮 Forecast","🤖 Optimizer","👥 Segments","🛒 Basket","📈 Advanced","📄 Report","💎 Plans","💬 AI"])
 
-    # ---------- Data Hub ----------
+    # ---------- DATA HUB ----------
     with tabs[0]:
-        sec_header("00", "Data Hub", "Overview")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Rows", f"{len(df):,}")
-        col2.metric("Columns", f"{df.shape[1]}")
-        col3.metric("Missing", f"{df.isnull().sum().sum():,}")
-        col4.metric("Memory", f"{df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
-        st.dataframe(df.head(100), use_container_width=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.json({k: len(v) for k, v in st.session_state["roles"].items()})
+        sec_header("00", "Data Hub", "Overview & Exploration")
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("📋 Rows", f"{len(df):,}")
+        c2.metric("📐 Columns", f"{df.shape[1]}")
+        c3.metric("⚠️ Missing", f"{df.isnull().sum().sum():,}")
+        c4.metric("💾 Memory", f"{df.memory_usage(deep=True).sum()/1024/1024:.2f} MB")
+        
+        # FIX #1: Show column type summary
+        roles = st.session_state["roles"]
+        col1, col2 = st.columns([3,1])
         with col2:
-            with st.expander("Stats"):
-                st.dataframe(df.describe(include="all").T, use_container_width=True)
+            st.markdown("**Column Types Detected:**")
+            for role, cols in roles.items():
+                if cols:
+                    icon = {"date":"📅","numeric":"🔢","categorical":"🏷️","id":"🔑"}.get(role,"")
+                    st.markdown(f"{icon} **{role.title()}**: {', '.join(cols[:3])}{'...' if len(cols)>3 else ''}")
+        with col1:
+            st.dataframe(df.head(100), use_container_width=True)
+        
+        with st.expander("📊 Statistical Summary"):
+            st.dataframe(df.describe(include="all").T, use_container_width=True)
 
     # ---------- KPIs ----------
     with tabs[1]:
-        sec_header("01", "Key Performance Indicators", "Revenue & Profit")
-        sales_col = st.session_state["col_map"].get("sales", "—")
-        profit_col = st.session_state["col_map"].get("profit", "—")
-        date_col = st.session_state["col_map"].get("date", "—")
-        cat_col = st.session_state["col_map"].get("category", "—")
+        sec_header("01", "Key Performance Indicators", "Revenue & Profit Analysis")
+        sales_col = st.session_state["col_map"].get("sales","—")
+        profit_col = st.session_state["col_map"].get("profit","—")
+        date_col = st.session_state["col_map"].get("date","—")
+        cat_col = st.session_state["col_map"].get("category","—")
         if sales_col != "—" and sales_col in df.columns:
             total_rev = df[sales_col].sum()
             total_profit = df[profit_col].sum() if profit_col != "—" and profit_col in df.columns else None
-            margin = (total_profit / total_rev * 100) if total_profit and total_rev else None
+            margin = (total_profit/total_rev*100) if total_profit and total_rev else None
             avg_order = df[sales_col].mean()
-            c1, c2, c3, c4 = st.columns(4)
+            c1,c2,c3,c4 = st.columns(4)
             c1.metric("💰 Total Revenue", fmt_num(total_rev, prefix="$"))
-            if total_profit:
-                c2.metric("📈 Total Profit", fmt_num(total_profit, prefix="$"))
-            if margin:
-                c3.metric("📊 Profit Margin", f"{margin:.1f}%")
+            if total_profit: c2.metric("📈 Total Profit", fmt_num(total_profit, prefix="$"))
+            if margin: c3.metric("📊 Profit Margin", f"{margin:.1f}%")
             c4.metric("🛒 Avg Order", fmt_num(avg_order, prefix="$"))
             if date_col != "—" and date_col in df.columns:
-                col1, col2 = st.columns(2)
+                col1,col2 = st.columns(2)
                 with col1:
                     df_ts = df.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
-                    fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
-                    fig = apply_plot_style(fig)
-                    st.plotly_chart(fig, use_container_width=True)
+                    fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales Trend", markers=True)
+                    st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                 with col2:
                     if cat_col != "—" and cat_col in df.columns:
                         cat_sales = df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(sales_col, ascending=False)
-                        fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category")
-                        fig2 = apply_plot_style(fig2)
-                        st.plotly_chart(fig2, use_container_width=True)
+                        fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category", color=sales_col, color_continuous_scale="Viridis")
+                        st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
         else:
-            st.info("Map a Sales column in sidebar.")
+            st.info("👈 Map a Sales column in the sidebar.")
 
-    # ---------- Forecasting ----------
+    # ---------- FORECAST ----------
     with tabs[2]:
         sec_header("02", "Demand Forecasting", "AI-powered prediction")
-        if not is_pro_or_enterprise:
+        if not is_pro:
             st.warning("🔒 Forecasting is available in Pro and Enterprise plans only.")
         else:
-            sales_col = st.session_state["col_map"].get("sales", "—")
-            date_col = st.session_state["col_map"].get("date", "—")
-            if sales_col != "—" and date_col != "—" and sales_col in df.columns and date_col in df.columns:
-                col1, col2 = st.columns(2)
-                with col1:
-                    horizon = st.slider("Horizon (periods)", 3, 36, 12)
-                with col2:
-                    freq_label = st.selectbox("Aggregation", ["Monthly", "Weekly"])
+            sales_col = st.session_state["col_map"].get("sales","—")
+            date_col = st.session_state["col_map"].get("date","—")
+            if sales_col != "—" and date_col != "—" and all(c in df.columns for c in [sales_col, date_col]):
+                c1,c2 = st.columns(2)
+                with c1: horizon = st.slider("Horizon (periods)", 3, 36, 12)
+                with c2: freq_label = st.selectbox("Aggregation", ["Monthly","Weekly"])
                 freq_key = 'ME' if freq_label == "Monthly" else 'W'
-                if st.button("Run Forecast"):
-                    with st.spinner("Building forecast..."):
+                if st.button("🔮 Run Forecast"):
+                    with st.spinner("Building AI forecast model..."):
                         try:
-                            date_json = df[date_col].astype(str).to_json()
-                            val_json = df[sales_col].to_json()
-                            hist, fcast, model_name = build_forecast(date_json, val_json, horizon, freq_key)
+                            hist, fcast, model_name = build_forecast(df[date_col].astype(str).to_json(), df[sales_col].to_json(), horizon, freq_key)
                             if hist is None:
-                                st.error("Failed to build forecast. Install statsmodels or prophet.")
+                                st.error("Failed. Install statsmodels or prophet.")
                             else:
                                 fig = go.Figure()
                                 fig.add_trace(go.Scatter(x=hist["Date"], y=hist["Value"], name="Historical", line=dict(color="#06b6d4", width=2)))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Upper"], fill=None, line=dict(color="rgba(0,0,0,0)"), showlegend=False))
-                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence", fillcolor="rgba(139,92,246,0.2)", line=dict(color="rgba(0,0,0,0)")))
-                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f59e0b", width=2, dash="dash")))
-                                fig = apply_plot_style(fig)
-                                st.plotly_chart(fig, use_container_width=True)
+                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence Band", fillcolor="rgba(124,58,237,0.2)", line=dict(color="rgba(0,0,0,0)")))
+                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f97316", width=2, dash="dash")))
+                                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                                 st.dataframe(fcast.round(2), use_container_width=True)
                         except Exception as e:
                             st.error(f"Error: {e}")
             else:
                 st.info("Map Sales and Date columns.")
 
-    # ---------- Profit Optimizer ----------
+    # ---------- OPTIMIZER ----------
     with tabs[3]:
-        sec_header("03", "AI Profit Optimizer", "Voting Ensemble")
-        profit_col = st.session_state["col_map"].get("profit", "—")
+        sec_header("03", "AI Profit Optimizer", "Ensemble ML Model")
+        profit_col = st.session_state["col_map"].get("profit","—")
         if profit_col != "—" and profit_col in df.columns:
-            available_features = [c for c in df.columns if c != profit_col]
-            features = st.multiselect("Select features", available_features, default=[])
-            if features and st.button("Train Model"):
+            available = [c for c in df.columns if c != profit_col]
+            features = st.multiselect("Select Features", available, default=[])
+            if features and st.button("🤖 Train Model"):
                 with st.spinner("Training ensemble..."):
                     try:
-                        train_df = df[features + [profit_col]].dropna()
+                        train_df = df[features+[profit_col]].dropna()
                         if len(train_df) < 20:
                             st.error("Need at least 20 rows.")
                         else:
                             result = train_ml_ensemble(train_df.to_json(), profit_col, features)
                             _, _, _, r2, mape, imp, perm_imp, _ = result
-                            c1, c2, c3 = st.columns(3)
+                            c1,c2,c3 = st.columns(3)
                             c1.metric("R² Score", f"{r2:.3f}" if r2 else "N/A")
                             c2.metric("MAPE", f"{mape:.1f}%" if mape else "N/A")
-                            c3.metric("Rows", f"{len(train_df):,}")
-                            col1, col2 = st.columns(2)
+                            c3.metric("Training Rows", f"{len(train_df):,}")
+                            col1,col2 = st.columns(2)
                             with col1:
                                 imp_df = pd.Series(imp).sort_values(ascending=True)
-                                fig = px.bar(imp_df, orientation="h", title="Feature Importance")
-                                fig = apply_plot_style(fig)
-                                st.plotly_chart(fig, use_container_width=True)
+                                fig = px.bar(imp_df, orientation="h", title="Feature Importance (RF)")
+                                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                             with col2:
                                 perm_df = pd.Series(perm_imp).sort_values(ascending=True)
                                 fig2 = px.bar(perm_df, orientation="h", title="Permutation Importance")
-                                fig2 = apply_plot_style(fig2)
-                                st.plotly_chart(fig2, use_container_width=True)
+                                st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {e}")
         else:
             st.info("Map a Profit column.")
 
-    # ---------- Segmentation ----------
+    # ---------- SEGMENTS ----------
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM & Clustering")
-        cust_col = st.session_state["col_map"].get("customer", "—")
-        sales_col = st.session_state["col_map"].get("sales", "—")
-        date_col = st.session_state["col_map"].get("date", "—")
-        seg_tab1, seg_tab2 = st.tabs(["RFM Analysis", "Clustering"])
+        seg_tab1, seg_tab2 = st.tabs(["RFM Analysis","Advanced Clustering"])
         with seg_tab1:
-            if cust_col != "—" and sales_col != "—" and date_col != "—" and all(c in df.columns for c in [cust_col, sales_col, date_col]):
-                if st.button("Run RFM"):
+            cust_col = st.session_state["col_map"].get("customer","—")
+            sales_col = st.session_state["col_map"].get("sales","—")
+            date_col = st.session_state["col_map"].get("date","—")
+            if all(c != "—" and c in df.columns for c in [cust_col, sales_col, date_col]):
+                if st.button("🔍 Run RFM Analysis"):
                     rfm = compute_rfm(df, date_col, sales_col, cust_col)
                     if rfm is not None:
                         st.dataframe(rfm.head(50), use_container_width=True)
-                        col1, col2 = st.columns(2)
+                        col1,col2 = st.columns(2)
                         with col1:
                             seg_counts = rfm["Segment"].value_counts()
-                            fig = px.pie(seg_counts, names=seg_counts.index, values=seg_counts.values, title="Segments")
-                            fig = apply_plot_style(fig)
-                            st.plotly_chart(fig, use_container_width=True)
+                            fig = px.pie(seg_counts, names=seg_counts.index, values=seg_counts.values, title="Customer Segments")
+                            st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                         with col2:
                             fig2 = px.scatter(rfm, x="Frequency", y="Monetary", color="Segment", size="RFM_Score", title="RFM Scatter")
-                            fig2 = apply_plot_style(fig2)
-                            st.plotly_chart(fig2, use_container_width=True)
-                    else:
-                        st.warning("RFM failed.")
+                            st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
             else:
-                st.info("Map Customer ID, Sales, and Date.")
+                st.info("Map Customer ID, Sales, and Date columns.")
         with seg_tab2:
-            if not is_pro_or_enterprise:
-                st.info("Clustering is Pro/Enterprise feature.")
+            if not is_pro:
+                st.info("🔒 Clustering is a Pro/Enterprise feature.")
             else:
                 num_cols = df.select_dtypes(include=np.number).columns.tolist()
                 if len(num_cols) >= 2:
-                    method = st.selectbox("Method", ["kmeans", "dbscan", "hierarchical"])
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if method in ['kmeans', 'hierarchical']:
-                            k = st.slider("Clusters", 2, 8, 3)
-                        else:
-                            eps = st.slider("Epsilon", 0.1, 2.0, 0.5, 0.05)
-                    with col2:
-                        feat_clust = st.multiselect("Features", num_cols, default=num_cols[:min(3, len(num_cols))])
-                    if feat_clust and st.button("Run Clustering"):
+                    method = st.selectbox("Clustering Method", ["kmeans","dbscan","hierarchical"])
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        if method in ['kmeans','hierarchical']: k = st.slider("Clusters", 2, 8, 3)
+                        else: eps = st.slider("Epsilon", 0.1, 2.0, 0.5, 0.05)
+                    with c2:
+                        feat_clust = st.multiselect("Features", num_cols, default=num_cols[:min(3,len(num_cols))])
+                    if feat_clust and st.button("🎯 Run Clustering"):
                         try:
                             eps_val = eps if method == 'dbscan' else 0.5
-                            labels, sil, coords, inertias, var, _ = run_advanced_clustering(
-                                df[feat_clust].dropna().to_json(), feat_clust, method=method,
-                                n_clusters=k, eps=eps_val
-                            )
+                            labels, sil, coords, inertias, var, _ = run_advanced_clustering(df[feat_clust].dropna().to_json(), feat_clust, method=method, n_clusters=k if method != 'dbscan' else 3, eps=eps_val)
                             if labels is not None:
-                                if sil:
-                                    st.metric("Silhouette Score", f"{sil:.3f}")
-                                fig = px.scatter(x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
+                                if sil: st.metric("Silhouette Score", f"{sil:.3f}")
+                                fig = px.scatter(x=coords[:,0], y=coords[:,1], color=labels.astype(str),
                                                  title=f"PCA Projection - {method.upper()}",
-                                                 labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"})
-                                fig = apply_plot_style(fig)
-                                st.plotly_chart(fig, use_container_width=True)
+                                                 labels={"x":f"PC1 ({var[0]*100:.1f}%)","y":f"PC2 ({var[1]*100:.1f}%)"})
+                                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                                 if inertias:
                                     fig2 = px.line(x=list(inertias.keys()), y=list(inertias.values()), markers=True, title="Elbow Method")
-                                    fig2 = apply_plot_style(fig2)
-                                    st.plotly_chart(fig2, use_container_width=True)
+                                    st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
                         except Exception as e:
                             st.error(f"Error: {e}")
-                else:
-                    st.info("Need at least 2 numeric columns.")
 
-    # ---------- Market Basket ----------
+    # ---------- BASKET ----------
     with tabs[5]:
-        sec_header("05", "Market Basket", "Apriori rules")
-        if not is_pro_or_enterprise:
-            st.warning("🔒 Market Basket is Pro/Enterprise only.")
+        sec_header("05", "Market Basket Analysis", "Apriori Association Rules")
+        if not is_pro:
+            st.warning("🔒 Market Basket is a Pro/Enterprise feature.")
         elif not MLXTEND_AVAILABLE:
             st.warning("Install mlxtend: pip install mlxtend")
         else:
-            cust_col = st.session_state["col_map"].get("customer", "—")
-            prod_col = st.session_state["col_map"].get("product", "—")
-            if cust_col != "—" and prod_col != "—" and cust_col in df.columns and prod_col in df.columns:
-                col1, col2 = st.columns(2)
-                with col1:
-                    min_sup = st.slider("Min Support", 0.005, 0.1, 0.01, 0.005)
-                with col2:
-                    min_lift = st.slider("Min Lift", 1.0, 5.0, 1.0, 0.1)
-                if st.button("Run Apriori"):
-                    with st.spinner("Running..."):
+            cust_col = st.session_state["col_map"].get("customer","—")
+            prod_col = st.session_state["col_map"].get("product","—")
+            if cust_col != "—" and prod_col != "—" and all(c in df.columns for c in [cust_col, prod_col]):
+                c1,c2 = st.columns(2)
+                with c1: min_sup = st.slider("Min Support", 0.005, 0.1, 0.01, 0.005)
+                with c2: min_lift = st.slider("Min Lift", 1.0, 5.0, 1.0, 0.1)
+                if st.button("🛒 Run Apriori"):
+                    with st.spinner("Mining association rules..."):
                         try:
                             freq, rules, msg = market_basket_analysis(df, cust_col, prod_col, min_sup)
                             if rules is not None and len(rules) > 0:
-                                rules_filtered = rules[rules["lift"] >= min_lift]
-                                st.success(f"Found {len(rules_filtered)} rules.")
-                                st.dataframe(rules_filtered[["antecedents", "consequents", "support", "confidence", "lift"]].sort_values("lift", ascending=False), use_container_width=True)
-                                fig = px.scatter(rules_filtered, x="support", y="confidence", color="lift", size="lift", title="Support vs Confidence")
-                                fig = apply_plot_style(fig)
-                                st.plotly_chart(fig, use_container_width=True)
+                                rules_f = rules[rules["lift"] >= min_lift]
+                                st.success(f"Found {len(rules_f)} rules.")
+                                st.dataframe(rules_f[["antecedents","consequents","support","confidence","lift"]].sort_values("lift", ascending=False), use_container_width=True)
+                                fig = px.scatter(rules_f, x="support", y="confidence", color="lift", size="lift", title="Support vs Confidence")
+                                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                             else:
                                 st.info(msg)
                         except Exception as e:
@@ -1969,134 +2154,106 @@ def render_analytics_app():
             else:
                 st.info("Map Customer ID and Product columns.")
 
-    # ---------- Advanced Analytics ----------
+    # ---------- ADVANCED ----------
     with tabs[6]:
-        sec_header("06", "Advanced Analytics", "Correlations, Anomalies")
-        adv_tab1, adv_tab2, adv_tab3 = st.tabs(["Correlations", "Anomaly Detection", "Data Explorer"])
-        with adv_tab1:
+        sec_header("06", "Advanced Analytics", "Correlations, Anomalies & Exploration")
+        adv1, adv2, adv3 = st.tabs(["Correlations","Anomaly Detection","Data Explorer"])
+        with adv1:
             num_cols = df.select_dtypes(include=np.number).columns.tolist()
             if len(num_cols) >= 2:
                 corr = df[num_cols].corr()
                 fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", title="Correlation Matrix", aspect="auto")
-                fig = apply_plot_style(fig)
-                st.plotly_chart(fig, use_container_width=True)
-                top4 = num_cols[:min(4, len(num_cols))]
-                fig2 = px.scatter_matrix(df[top4].dropna().sample(min(500, len(df))), title="Scatter Matrix")
-                fig2 = apply_plot_style(fig2)
-                st.plotly_chart(fig2, use_container_width=True)
-            else:
-                st.info("Need 2+ numeric columns.")
-        with adv_tab2:
+                st.plotly_chart(apply_plot_style(fig), use_container_width=True)
+        with adv2:
             num_cols = df.select_dtypes(include=np.number).columns.tolist()
-            feat_anom = st.multiselect("Features for anomaly", num_cols, default=num_cols[:min(3, len(num_cols))])
+            feat_anom = st.multiselect("Features for Anomaly Detection", num_cols, default=num_cols[:min(3,len(num_cols))])
             contamination = st.slider("Contamination %", 0.01, 0.2, 0.05, 0.01)
-            if feat_anom and st.button("Detect Anomalies"):
+            if feat_anom and st.button("🔍 Detect Anomalies"):
                 with st.spinner("Training Isolation Forest..."):
                     try:
                         clean_df = df[feat_anom].dropna()
                         anomalies, _ = detect_anomalies_iforest(clean_df.to_json(), feat_anom, contamination)
                         n_anom = int(anomalies.sum())
-                        st.metric("Anomalies Detected", n_anom)
-                        st.metric("Anomaly Rate", f"{n_anom/len(anomalies)*100:.1f}%")
+                        c1,c2 = st.columns(2)
+                        c1.metric("Anomalies Detected", n_anom)
+                        c2.metric("Anomaly Rate", f"{n_anom/len(anomalies)*100:.1f}%")
                         if n_anom > 0 and len(feat_anom) >= 2:
-                            fig = px.scatter(x=clean_df.iloc[:,0], y=clean_df.iloc[:,1], color=np.where(anomalies, "Anomaly", "Normal"),
+                            fig = px.scatter(x=clean_df.iloc[:,0], y=clean_df.iloc[:,1], color=np.where(anomalies,"Anomaly","Normal"),
                                              title="Anomaly Visualization", color_discrete_map={"Anomaly":"#ef4444","Normal":"#10b981"})
-                            fig = apply_plot_style(fig)
-                            st.plotly_chart(fig, use_container_width=True)
-                        if n_anom > 0:
-                            clean_idx = clean_df.index
-                            anom_idx = clean_idx[anomalies]
-                            st.dataframe(df.loc[anom_idx].head(50), use_container_width=True)
+                            st.plotly_chart(apply_plot_style(fig), use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {e}")
-        with adv_tab3:
-            date_col = st.session_state["col_map"].get("date", "—")
+        with adv3:
+            date_col = st.session_state["col_map"].get("date","—")
             if date_col != "—" and date_col in df.columns:
-                min_d = df[date_col].min().date()
-                max_d = df[date_col].max().date()
+                min_d, max_d = df[date_col].min().date(), df[date_col].max().date()
                 date_range = st.date_input("Date Range", [min_d, max_d])
                 if len(date_range) == 2:
                     mask = (df[date_col] >= pd.to_datetime(date_range[0])) & (df[date_col] <= pd.to_datetime(date_range[1]))
-                    filtered_df = df[mask]
-                    st.write(f"Showing {len(filtered_df):,} of {len(df):,} rows")
-                    st.dataframe(filtered_df, use_container_width=True)
-                    csv = filtered_df.to_csv(index=False)
-                    st.download_button("Export CSV", csv, "filtered.csv", "text/csv")
+                    filtered = df[mask]
+                    st.write(f"Showing **{len(filtered):,}** of {len(df):,} rows")
+                    st.dataframe(filtered, use_container_width=True)
+                    csv = filtered.to_csv(index=False)
+                    st.download_button("📥 Export CSV", csv, "filtered.csv", "text/csv")
             else:
-                st.info("Map a Date column for filtering.")
-                st.dataframe(df.sample(min(200, len(df))), use_container_width=True)
+                st.dataframe(df.sample(min(200,len(df))), use_container_width=True)
 
-    # ---------- Executive Report ----------
+    # ---------- REPORT ----------
     with tabs[7]:
         sec_header("07", "Executive Report", "AI-generated summary")
-        if st.button("Generate Report"):
-            sales_col = st.session_state["col_map"].get("sales", "—")
-            profit_col = st.session_state["col_map"].get("profit", "—")
-            cat_col = st.session_state["col_map"].get("category", "—")
-            date_col = st.session_state["col_map"].get("date", "—")
+        if st.button("📄 Generate Report"):
+            sales_col = st.session_state["col_map"].get("sales","—")
+            profit_col = st.session_state["col_map"].get("profit","—")
+            cat_col = st.session_state["col_map"].get("category","—")
+            date_col = st.session_state["col_map"].get("date","—")
             total_rev = df[sales_col].sum() if sales_col != "—" and sales_col in df.columns else 0
             total_profit = df[profit_col].sum() if profit_col != "—" and profit_col in df.columns else 0
-            margin = (total_profit / total_rev * 100) if total_rev and total_rev > 0 else 0
-            top_category = "N/A"
-            if cat_col != "—" and cat_col in df.columns and sales_col != "—" and sales_col in df.columns:
-                try:
-                    top_category = df.groupby(cat_col)[sales_col].sum().idxmax()
-                except:
-                    pass
-            date_range_str = "N/A"
-            if date_col != "—" and date_col in df.columns:
-                try:
-                    date_range_str = f"{df[date_col].min().date()} → {df[date_col].max().date()}"
-                except:
-                    pass
-            missing_pct = df.isnull().sum().sum() / (df.shape[0] * df.shape[1]) * 100
-            report = f"""# NEXUS Analytics Pro Executive Report
+            margin = (total_profit/total_rev*100) if total_rev else 0
+            top_cat = df.groupby(cat_col)[sales_col].sum().idxmax() if cat_col != "—" and cat_col in df.columns and sales_col != "—" and sales_col in df.columns else "N/A"
+            date_range_str = f"{df[date_col].min().date()} → {df[date_col].max().date()}" if date_col != "—" and date_col in df.columns else "N/A"
+            missing_pct = df.isnull().sum().sum()/(df.shape[0]*df.shape[1])*100
+            report = f"""# NEXUS Analytics Pro — Executive Report
 
-## Dataset Overview
-- Records: {len(df):,}
-- Columns: {df.shape[1]}
-- Date Range: {date_range_str}
-- Missing Data: {missing_pct:.2f}%
+## 📊 Dataset Overview
+- **Records:** {len(df):,}
+- **Columns:** {df.shape[1]}
+- **Date Range:** {date_range_str}
+- **Missing Data:** {missing_pct:.2f}%
 
-## Financial Performance
-- Total Revenue: {fmt_num(total_rev, prefix='$')}
-- Total Profit: {fmt_num(total_profit, prefix='$')}
-- Profit Margin: {margin:.1f}%
-- Top Category: {top_category}
+## 💰 Financial Performance
+- **Total Revenue:** {fmt_num(total_rev, prefix='$')}
+- **Total Profit:** {fmt_num(total_profit, prefix='$')}
+- **Profit Margin:** {margin:.1f}%
+- **Top Category:** {top_cat}
 
-## Recommendations
-1. Focus on {top_category} category.
-2. Improve margin by reviewing discounts.
-3. Use RFM to retain loyal customers.
-4. Deploy forecasting for inventory.
-5. Run anomaly detection weekly.
+## 🎯 Strategic Recommendations
+1. **Double down on {top_cat}** — highest revenue generator
+2. **Review discount strategy** — reduce margin erosion
+3. **Activate RFM segmentation** — target Champions & Loyal customers
+4. **Deploy demand forecasting** — optimize inventory levels
+5. **Run weekly anomaly detection** — catch data quality issues early
 
 ---
-Report generated by NEXUS Analytics Pro
+*Generated by NEXUS Analytics Pro · {datetime.now().strftime('%Y-%m-%d %H:%M')}*
 """
             st.markdown(report)
-            st.download_button("Download Report", report, "nexus_report.md", "text/markdown")
+            st.download_button("📥 Download Report", report, "nexus_report.md", "text/markdown")
 
-    # ---------- Subscription Plans ----------
+    # ---------- PLANS ----------
     with tabs[8]:
         subscription_plans_tab()
 
-    # ---------- AI Assistant ----------
+    # ---------- AI CHAT ----------
     with tabs[9]:
         chatbot_tab()
 
 # ========================== MAIN ==========================
 def main():
     if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-        st.session_state["user_email"] = None
-        st.session_state["is_admin"] = False
-
+        st.session_state.update({"logged_in": False, "user_email": None, "is_admin": False})
     login_section()
-
     if st.session_state.get("is_admin", False):
-        admin_mode = st.sidebar.checkbox("🔧 Admin Panel", key="admin_mode_switch")
-        if admin_mode:
+        if st.sidebar.checkbox("🔧 Admin Panel", key="admin_mode_switch"):
             mega_admin_dashboard()
         else:
             render_analytics_app()
