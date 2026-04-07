@@ -71,7 +71,6 @@ def read_csv_with_encoding(uploaded_file):
     """
     encodings = ['utf-8', 'windows-1256', 'iso-8859-6', 'iso-8859-1', 'cp1252', 'latin1', 'utf-8-sig']
     
-    # أنماط التواريخ الشائعة للكشف
     DATE_FORMATS = [
         '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
         '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
@@ -82,18 +81,14 @@ def read_csv_with_encoding(uploaded_file):
     ]
     
     def try_parse_date_column(series):
-        """محاولة تحويل عمود إلى تاريخ بأمان"""
         if pd.api.types.is_datetime64_any_dtype(series):
             return series
-
         if pd.api.types.is_numeric_dtype(series):
             if series.dropna().mean() < 100000:  
                 return None
-
         sample = series.dropna().astype(str).head(50)
         if len(sample) == 0:
             return None
-        
         for fmt in DATE_FORMATS:
             try:
                 parsed = pd.to_datetime(sample, format=fmt, errors='raise')
@@ -103,7 +98,6 @@ def read_csv_with_encoding(uploaded_file):
                     return full_parsed
             except (ValueError, TypeError):
                 continue
-        
         try:
             full_parsed = pd.to_datetime(series.astype(str), format='mixed', errors='coerce')
             success_rate = full_parsed.notna().mean()
@@ -111,23 +105,19 @@ def read_csv_with_encoding(uploaded_file):
                 return full_parsed
         except:
             pass
-        
         return None
 
     for enc in encodings:
         try:
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, encoding=enc)
-            
             for col in df.columns:
                 parsed = try_parse_date_column(df[col])
                 if parsed is not None:
                     df[col] = parsed
-            
             return df, enc
         except (UnicodeDecodeError, Exception):
             continue
-    
     raise UnicodeDecodeError("utf-8", b"", 0, 1, "Unable to decode file with common encodings.")
 
 # ========================== DATABASE ==========================
@@ -496,12 +486,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ========================== FIX #3: ENHANCED UI CSS ==========================
+# ========================== ENHANCED UI CSS ==========================
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* ===== ROOT VARIABLES ===== */
 :root {
     --bg-primary: #060b18;
     --bg-secondary: #0d1626;
@@ -525,14 +514,12 @@ st.markdown("""
     --radius-xl: 32px;
 }
 
-/* ===== GLOBAL RESET ===== */
 html, body, [data-testid="stAppViewContainer"], .main {
     background-color: var(--bg-primary) !important;
     color: var(--text-primary) !important;
     font-family: 'Space Grotesk', sans-serif !important;
 }
 
-/* ===== ANIMATED BACKGROUND ===== */
 [data-testid="stAppViewContainer"]::before {
     content: '';
     position: fixed;
@@ -545,7 +532,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     z-index: 0;
 }
 
-/* ===== SIDEBAR ===== */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #060b18 0%, #0d1626 100%) !important;
     border-right: 1px solid rgba(124, 58, 237, 0.3) !important;
@@ -564,7 +550,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     text-transform: uppercase !important;
 }
 
-/* ===== CARDS & CONTAINERS ===== */
 .nx-header {
     background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(6, 182, 212, 0.1)) !important;
     border: 1px solid rgba(124, 58, 237, 0.3) !important;
@@ -596,7 +581,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     color: transparent;
 }
 
-/* ===== METRICS ===== */
 [data-testid="stMetric"] {
     background: linear-gradient(135deg, var(--bg-card), var(--bg-card-hover)) !important;
     border: 1px solid var(--border-bright) !important;
@@ -631,7 +615,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     font-weight: 700 !important;
 }
 
-/* ===== TABS ===== */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px !important;
     background: var(--bg-card) !important;
@@ -660,7 +643,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     box-shadow: 0 4px 15px var(--glow-purple) !important;
 }
 
-/* ===== BUTTONS ===== */
 .stButton > button {
     background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
     color: white !important;
@@ -679,7 +661,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     gap: 8px !important;
 }
 
-/* ===== INPUT FIELDS ===== */
 .stTextInput > div > div > input,
 .stTextArea textarea,
 .stNumberInput input,
@@ -699,7 +680,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     box-shadow: 0 0 0 2px var(--glow-purple) !important;
 }
 
-/* ===== FILE UPLOADER ===== */
 [data-testid="stFileUploadDropzone"] {
     background: linear-gradient(135deg, rgba(124, 58, 237, 0.05), rgba(6, 182, 212, 0.05)) !important;
     border: 2px dashed rgba(124, 58, 237, 0.4) !important;
@@ -714,7 +694,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     color: var(--text-primary) !important;
 }
 
-/* ===== DATAFRAME ===== */
 [data-testid="stDataFrame"] {
     border: 1px solid var(--border-bright) !important;
     border-radius: var(--radius-md) !important;
@@ -743,7 +722,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     background: var(--bg-card-hover) !important;
 }
 
-/* ===== EXPANDER ===== */
 [data-testid="stExpander"] {
     background: var(--bg-card) !important;
     border: 1px solid var(--border-bright) !important;
@@ -757,165 +735,145 @@ html, body, [data-testid="stAppViewContainer"], .main {
     font-family: 'Space Grotesk', sans-serif !important;
 }
 
-/* ===== SUCCESS / ERROR / WARNING / INFO ===== */
 [data-testid="stAlert"] {
     border-radius: var(--radius-md) !important;
     font-family: 'Space Grotesk', sans-serif !important;
 }
 
-/* ===== CHAT - FIX #2: PROPER MESSAGE CONTAINERS ===== */
-[data-testid="stChatInput"] {
-    background: var(--bg-secondary) !important;
-    border: 1px solid rgba(124, 58, 237, 0.3) !important;
-    border-radius: var(--radius-lg) !important;
-    padding: 4px !important;
-}
-[data-testid="stChatInput"] textarea {
-    background: var(--bg-card) !important;
-    color: var(--text-primary) !important;
-    font-family: 'Space Grotesk', sans-serif !important;
-    border-radius: var(--radius-md) !important;
-    resize: none !important;
-    min-height: 52px !important;
+/* ===== ENHANCED CHAT UI ===== */
+.chat-container {
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(12px);
+    border-radius: 28px;
+    padding: 1.5rem;
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    margin-bottom: 1rem;
 }
 
-[data-testid="stChatMessage"] {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    margin-bottom: 1rem !important;
-}
-
-[data-testid="stChatMessage"][data-testid*="user"] .stMarkdown,
-.stChatMessage[aria-label*="user"] .stMarkdown {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(79, 70, 229, 0.15)) !important;
-    border: 1px solid rgba(124, 58, 237, 0.3) !important;
-    border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
-    padding: 1rem 1.25rem !important;
-    width: fit-content !important;
-    max-width: 80% !important;
-    margin-left: auto !important;
-    word-wrap: break-word !important;
-    white-space: pre-wrap !important;
-    height: auto !important;
-    min-height: unset !important;
-}
-
-[data-testid="stChatMessage"][data-testid*="assistant"] .stMarkdown,
-.stChatMessage[aria-label*="assistant"] .stMarkdown {
-    background: linear-gradient(135deg, var(--bg-card), rgba(6, 182, 212, 0.05)) !important;
-    border: 1px solid rgba(6, 182, 212, 0.2) !important;
-    border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
-    padding: 1rem 1.25rem !important;
-    width: fit-content !important;
-    max-width: 85% !important;
-    margin-right: auto !important;
-    word-wrap: break-word !important;
-    white-space: pre-wrap !important;
-    height: auto !important;
-    min-height: unset !important;
-}
-
-[data-testid="stChatMessage"] .stMarkdown p,
-[data-testid="stChatMessage"] .stMarkdown {
-    height: auto !important;
-    overflow: visible !important;
-    white-space: pre-wrap !important;
-    word-break: break-word !important;
-}
-
-.chat-message {
+.chat-message-wrapper {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
     margin-bottom: 1.5rem;
-    animation: fadeIn 0.3s ease;
+    animation: slideIn 0.3s ease-out;
 }
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
 }
-.chat-message .avatar {
-    width: 40px;
-    height: 40px;
+.chat-message-wrapper.user {
+    justify-content: flex-end;
+}
+.chat-message-wrapper.assistant {
+    justify-content: flex-start;
+}
+.chat-bubble {
+    max-width: 75%;
+    padding: 0.9rem 1.3rem;
+    border-radius: 24px;
+    line-height: 1.6;
+    font-size: 0.95rem;
+    font-family: 'Space Grotesk', sans-serif;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.chat-bubble.user {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    color: white;
+    border-bottom-right-radius: 6px;
+}
+.chat-bubble.assistant {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    color: #e2e8f0;
+    border-bottom-left-radius: 6px;
+}
+.chat-avatar {
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    margin-right: 12px;
     flex-shrink: 0;
 }
-.chat-message.user {
-    flex-direction: row-reverse;
+.chat-avatar.user {
+    background: linear-gradient(135deg, #7c3aed, #06b6d4);
+    margin-left: 12px;
+    margin-right: 0;
 }
-.chat-message.user .avatar {
-    background: linear-gradient(135deg, var(--accent-purple), #4f46e5);
-}
-.chat-message.assistant .avatar {
+.chat-avatar.assistant {
     background: linear-gradient(135deg, #0f172a, #1e293b);
-    border: 1px solid rgba(6, 182, 212, 0.4);
+    border: 1px solid rgba(6, 182, 212, 0.5);
 }
-
-.chat-bubble {
-    padding: 1rem 1.25rem !important;
-    border-radius: var(--radius-md) !important;
-    line-height: 1.7 !important;
+.chat-input-area {
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    border-radius: 60px;
+    padding: 0.5rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+.chat-input-area textarea {
+    background: transparent !important;
+    border: none !important;
+    color: var(--text-primary) !important;
+    resize: none !important;
+    padding: 0.75rem !important;
     font-size: 0.95rem !important;
-    font-family: 'Space Grotesk', sans-serif !important;
-    word-wrap: break-word !important;
-    word-break: break-word !important;
-    white-space: pre-wrap !important;
-    height: auto !important;
-    min-height: unset !important;
-    max-height: none !important;
-    overflow: visible !important;
-    max-width: 75vw;
 }
-.chat-message.user .chat-bubble {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(79, 70, 229, 0.2)) !important;
-    border: 1px solid rgba(124, 58, 237, 0.4) !important;
-    border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
-    color: var(--text-primary) !important;
-    margin-left: auto;
+.chat-input-area button {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    border: none;
+    border-radius: 40px;
+    padding: 0.5rem 1.2rem;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
 }
-.chat-message.assistant .chat-bubble {
-    background: linear-gradient(135deg, var(--bg-card), rgba(6, 182, 212, 0.08)) !important;
-    border: 1px solid rgba(6, 182, 212, 0.25) !important;
-    border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
-    color: var(--text-primary) !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2) !important;
+.chat-input-area button:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 12px var(--glow-purple);
 }
 
-/* ===== PROGRESS BAR ===== */
-.stProgress > div > div {
-    background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan)) !important;
-    border-radius: 999px !important;
+.typing-indicator {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background: rgba(30, 41, 59, 0.7);
+    border-radius: 40px;
+    width: fit-content;
 }
-.stProgress > div {
-    background: var(--border) !important;
-    border-radius: 999px !important;
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: var(--accent-cyan);
+    border-radius: 50%;
+    animation: pulse 1.2s infinite ease-in-out;
 }
-
-/* ===== SLIDER ===== */
-[data-testid="stSlider"] > div > div > div {
-    background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan)) !important;
-}
-
-/* ===== CHECKBOX ===== */
-[data-testid="stCheckbox"] > label > div {
-    border-color: var(--accent-purple) !important;
-}
-[data-testid="stCheckbox"] > label > div[aria-checked="true"] {
-    background: var(--accent-purple) !important;
-}
-
-/* ===== RADIO ===== */
-[data-testid="stRadio"] label {
-    color: var(--text-primary) !important;
-    font-family: 'Space Grotesk', sans-serif !important;
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse {
+    0%, 60%, 100% { transform: scale(1); opacity: 0.5; }
+    30% { transform: scale(1.3); opacity: 1; }
 }
 
-/* ===== SCROLLBAR ===== */
+.clear-btn {
+    background: rgba(239, 68, 68, 0.2) !important;
+    border: 1px solid rgba(239, 68, 68, 0.5) !important;
+    color: #f87171 !important;
+}
+.clear-btn:hover {
+    background: rgba(239, 68, 68, 0.4) !important;
+    border-color: #ef4444 !important;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-primary); }
 ::-webkit-scrollbar-thumb { 
@@ -923,16 +881,8 @@ html, body, [data-testid="stAppViewContainer"], .main {
     border-radius: 999px;
 }
 
-/* ===== DIVIDER ===== */
 hr { border-color: var(--border-bright) !important; opacity: 0.4 !important; }
-
-/* ===== CAPTION ===== */
-.stCaption, [data-testid="stCaptionContainer"] {
-    color: var(--text-muted) !important;
-    font-size: 0.8rem !important;
-}
-
-/* ===== MULTISELECT ===== */
+.stCaption, [data-testid="stCaptionContainer"] { color: var(--text-muted) !important; font-size: 0.8rem !important; }
 [data-testid="stMultiSelect"] > div > div {
     background: var(--bg-card) !important;
     border-color: var(--border-bright) !important;
@@ -943,14 +893,10 @@ hr { border-color: var(--border-bright) !important; opacity: 0.4 !important; }
     border: none !important;
     border-radius: 6px !important;
 }
-
-/* ===== DOWNLOAD BUTTON ===== */
 [data-testid="stDownloadButton"] > button {
     background: linear-gradient(135deg, var(--accent-green), #059669) !important;
     box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
 }
-
-/* ===== ADMIN PANEL SPECIFIC ===== */
 .admin-hero {
     background: linear-gradient(135deg, #0d1626 0%, rgba(124, 58, 237, 0.15) 50%, rgba(6, 182, 212, 0.1) 100%);
     border: 1px solid rgba(124, 58, 237, 0.3);
@@ -971,8 +917,6 @@ hr { border-color: var(--border-bright) !important; opacity: 0.4 !important; }
     pointer-events: none;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* ===== PLAN CARDS ===== */
 .plan-card {
     background: linear-gradient(145deg, var(--bg-card), var(--bg-card-hover));
     border: 1px solid var(--border-bright);
@@ -1193,9 +1137,7 @@ def load_builtin_dataset():
     return pd.DataFrame({"Order Date":dates,"Category":categories,"Sub-Region":regions,"Customer Segment":segments,"Sales":np.round(sales_final,2),"Profit":np.round(profit,2),"Discount":discount,"Quantity":qty,"Returns":returns,"Rating":rating,"Shipping Days":shipping_days})
 
 def detect_column_types(df):
-    """FIX #1: Enhanced date detection for uploaded files"""
     roles = {"date": [], "numeric": [], "categorical": [], "id": []}
-    
     DATE_FORMATS = [
         '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
         '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
@@ -1203,18 +1145,14 @@ def detect_column_types(df):
         '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S', '%m/%d/%Y %H:%M:%S',
         '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%d-%b-%Y',
     ]
-    
     def is_date_column(series):
-        """فحص ما إذا كان العمود يحتوي على بيانات تاريخ"""
         if pd.api.types.is_datetime64_any_dtype(series):
             return True
         if series.dtype != 'object':
             return False
-        
         sample = series.dropna().head(50)
         if len(sample) == 0:
             return False
-        
         for fmt in DATE_FORMATS:
             try:
                 parsed = pd.to_datetime(sample, format=fmt, errors='raise')
@@ -1224,7 +1162,6 @@ def detect_column_types(df):
                         return True
             except:
                 continue
-        
         try:
             parsed = pd.to_datetime(sample, infer_datetime_format=True, errors='coerce')
             if parsed.notna().mean() > 0.8:
@@ -1233,9 +1170,7 @@ def detect_column_types(df):
                     return True
         except:
             pass
-        
         return False
-    
     for col in df.columns:
         s = df[col]
         if pd.api.types.is_datetime64_any_dtype(s):
@@ -1255,13 +1190,10 @@ def detect_column_types(df):
                 roles["id"].append(col)
         else:
             roles["categorical"].append(col)
-    
     return roles
 
 def smart_clean(df, roles, manual_date_format=None):
-    """FIX #1: Enhanced cleaning with proper date conversion"""
     df = df.copy()
-    
     DATE_FORMATS = [
         '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d',
         '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d',
@@ -1269,11 +1201,9 @@ def smart_clean(df, roles, manual_date_format=None):
         '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S',
         '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%d-%b-%Y',
     ]
-    
     for col in roles["date"]:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             continue
-        
         if manual_date_format:
             try:
                 df[col] = pd.to_datetime(df[col], format=manual_date_format, errors='coerce')
@@ -1282,7 +1212,6 @@ def smart_clean(df, roles, manual_date_format=None):
                 continue
             except:
                 pass
-        
         success = False
         for fmt in DATE_FORMATS:
             try:
@@ -1293,24 +1222,20 @@ def smart_clean(df, roles, manual_date_format=None):
                     break
             except:
                 continue
-        
         if not success:
             try:
                 df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
             except:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
-    
     for col in roles["numeric"]:
         df[col] = pd.to_numeric(df[col], errors='coerce')
         if df[col].isnull().all():
             df[col].fillna(0, inplace=True)
         else:
             df[col].fillna(df[col].median(), inplace=True)
-    
     for col in roles["categorical"]:
         mode_val = df[col].mode()
         df[col].fillna(mode_val.iloc[0] if not mode_val.empty else "Unknown", inplace=True)
-    
     return df
 
 # ========================== ML FUNCTIONS ==========================
@@ -1460,11 +1385,8 @@ def market_basket_analysis(df, customer_col, product_col, min_support=0.01):
     rules = association_rules(frequent, metric="lift", min_threshold=1.0)
     return frequent, rules, "Success"
 
-# ========================== RIGHT LOGIN PANEL (FIXED) ==========================
+# ========================== RIGHT LOGIN PANEL ==========================
 def right_login_panel():
-    """
-    عرض نموذج تسجيل الدخول في العمود الأيمن مع تحسين النصوص العربية
-    """
     st.markdown("""
     <div style="background: linear-gradient(145deg, #111827, #0d1626);
                 border: 1px solid rgba(124, 58, 237, 0.4);
@@ -1524,7 +1446,7 @@ def right_login_panel():
     </div>
     """, unsafe_allow_html=True)
 
-# ========================== CHATBOT TAB ==========================
+# ========================== ENHANCED CHATBOT TAB (WITH IMPROVED UI) ==========================
 def chatbot_tab():
     deepseek_key = get_setting("deepseek_api_key")
     groq_key = get_setting("groq_api_key")
@@ -1534,6 +1456,7 @@ def chatbot_tab():
     custom_model = get_setting("custom_ai_model")
     custom_enabled = get_setting("custom_ai_enabled") == "1"
 
+    # Header بدون النص "Powered by ..."
     st.markdown("""
     <div style="text-align:center; margin-bottom:2rem;">
         <div style="width:80px;height:80px;background:linear-gradient(135deg,#7c3aed,#06b6d4);
@@ -1544,52 +1467,75 @@ def chatbot_tab():
                    -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:0.5rem;">
             NEXUS AI Assistant
         </h1>
-        <p style="color:#64748b;font-size:0.95rem;">Powered by DeepSeek · Groq · Custom AI</p>
     </div>
     """, unsafe_allow_html=True)
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [{"role": "assistant", "content": "مرحباً! أنا NEXUS AI 🚀\n\nكيف يمكنني مساعدتك اليوم؟ يمكنك سؤالي عن بياناتك، أو ميزات المنصة، أو أي استفسار تحليلي."}]
 
-    col1, col2 = st.columns([8, 1])
+    # زر مسح المحادثة
+    col1, col2, col3 = st.columns([6, 1, 1])
     with col2:
-        if st.button("🗑️ مسح", key="clear_chat"):
+        if st.button("🗑️ مسح", key="clear_chat", help="مسح المحادثة"):
             st.session_state.chat_messages = [{"role": "assistant", "content": "تم مسح المحادثة! كيف يمكنني مساعدتك؟"}]
             st.rerun()
 
+    # عرض المحادثة بتصميم محسن
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        role_class = "user" if msg["role"] == "user" else "assistant"
+        avatar = "👤" if msg["role"] == "user" else "🤖"
+        bubble_class = "chat-bubble user" if msg["role"] == "user" else "chat-bubble assistant"
+        st.markdown(f"""
+        <div class="chat-message-wrapper {role_class}">
+            <div class="chat-avatar {role_class}">{avatar}</div>
+            <div class="{bubble_class}">{msg["content"]}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    # منطقة إدخال النص المخصصة
     prompt = st.chat_input("اسألني عن بياناتك أو المنصة...")
+    
     if prompt:
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        # إعادة عرض المحادثة مع الرسالة الجديدة
+        st.rerun()
 
+    # معالجة الرد إذا كانت آخر رسالة من المستخدم
+    if st.session_state.chat_messages and st.session_state.chat_messages[-1]["role"] == "user":
+        last_user_msg = st.session_state.chat_messages[-1]["content"]
         has_key = (provider == "deepseek" and deepseek_key) or \
                   (provider == "groq" and groq_key) or \
                   (provider == "custom" and custom_enabled and custom_key)
-
+        
         if not has_key:
             error_msg = "⚠️ لم يتم تكوين مفاتيح AI API. يرجى التواصل مع المسؤول لإعداد DeepSeek أو Groq أو Custom AI في لوحة الإدارة."
             st.session_state.chat_messages.append({"role": "assistant", "content": error_msg})
-            with st.chat_message("assistant"):
-                st.markdown(error_msg)
+            st.rerun()
         else:
-            with st.chat_message("assistant"):
-                with st.spinner("جاري التفكير..."):
-                    current_df = st.session_state.get("df")
-                    response, error = get_chatbot_response(
-                        prompt, provider, deepseek_key, groq_key,
-                        custom_url if custom_enabled else "",
-                        custom_key if custom_enabled else "",
-                        custom_model if custom_enabled else "",
-                        st.session_state.chat_messages[:-1], current_df
-                    )
-                    response_text = f"عذراً، حدث خطأ: {error}" if error else response
-                    st.markdown(response_text)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+            with st.spinner(""):
+                # مؤشر الكتابة المخصص
+                typing_placeholder = st.empty()
+                typing_placeholder.markdown("""
+                <div class="typing-indicator">
+                    <span></span><span></span><span></span>
+                    <span style="margin-left:8px; color:#94a3b8;">NEXUS AI يكتب...</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                current_df = st.session_state.get("df")
+                response, error = get_chatbot_response(
+                    last_user_msg, provider, deepseek_key, groq_key,
+                    custom_url if custom_enabled else "",
+                    custom_key if custom_enabled else "",
+                    custom_model if custom_enabled else "",
+                    st.session_state.chat_messages[:-1], current_df
+                )
+                typing_placeholder.empty()
+                response_text = f"عذراً، حدث خطأ: {error}" if error else response
+                st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                st.rerun()
 
 # ========================== ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
@@ -1804,7 +1750,6 @@ def subscription_plans_tab():
 
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
-    # تهيئة session_state بشكل آمن
     defaults = {
         "df": None,
         "roles": {},
@@ -1821,7 +1766,6 @@ def render_analytics_app():
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
-    # تأكد من وجود جميع مفاتيح col_map
     for k in ["sales", "profit", "date", "category", "customer", "product"]:
         if k not in st.session_state["col_map"]:
             st.session_state["col_map"][k] = "—"
@@ -1896,7 +1840,6 @@ def render_analytics_app():
                                 roles = detect_column_types(df_new)
                                 df_clean = smart_clean(df_new, roles)
                                 st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name})
-                                # لا نعيد تعيين col_map بالكامل، فقط نحاول التخمين التلقائي
                                 cm = st.session_state["col_map"].copy()
                                 for col in df_new.columns:
                                     col_lower = col.lower()
@@ -1937,14 +1880,13 @@ def render_analytics_app():
                     roles = detect_column_types(df_bi)
                     df_clean = smart_clean(df_bi, roles)
                     st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin"})
-                    # تخمين تلقائي للأعمدة للبيانات المدمجة
                     cm = st.session_state["col_map"].copy()
                     cm["sales"] = "Sales"
                     cm["profit"] = "Profit"
                     cm["date"] = "Order Date"
                     cm["category"] = "Category"
-                    cm["customer"] = "Sub-Region"  # لا يوجد معرف عميل، نستخدم المنطقة كمثال
-                    cm["product"] = "Category"  # نستخدم الفئة كمنتج
+                    cm["customer"] = "Sub-Region"
+                    cm["product"] = "Category"
                     st.session_state["col_map"] = cm
                     log_system_action(st.session_state.get("user_email","guest"), "load_builtin")
                 st.success("✅ Built-in dataset ready")
@@ -1989,7 +1931,6 @@ def render_analytics_app():
 
     tabs = st.tabs(["📊 Data","💰 KPIs","🔮 Forecast","🤖 Optimizer","👥 Segments","🛒 Basket","📈 Advanced","📄 Report","💎 Plans","💬 AI"])
 
-    # ---------- DATA HUB ----------
     with tabs[0]:
         sec_header("00", "Data Hub", "Overview & Exploration")
         c1,c2,c3,c4 = st.columns(4)
@@ -2012,7 +1953,6 @@ def render_analytics_app():
         with st.expander("📊 Statistical Summary"):
             st.dataframe(df.describe(include="all").T, use_container_width=True)
 
-    # ---------- KPIs ----------
     with tabs[1]:
         sec_header("01", "Key Performance Indicators", "Revenue & Profit Analysis")
         cm = st.session_state.get("col_map", {})
@@ -2046,7 +1986,6 @@ def render_analytics_app():
         else:
             st.info("👈 قم بتعيين عمود المبيعات (Sales) من الشريط الجانبي")
 
-    # ---------- FORECAST ----------
     with tabs[2]:
         sec_header("02", "Demand Forecasting", "AI-powered prediction")
         if not is_pro:
@@ -2079,7 +2018,6 @@ def render_analytics_app():
             else:
                 st.info("قم بتعيين عمودي التاريخ والمبيعات من الشريط الجانبي")
 
-    # ---------- OPTIMIZER ----------
     with tabs[3]:
         sec_header("03", "AI Profit Optimizer", "Ensemble ML Model")
         cm = st.session_state.get("col_map", {})
@@ -2114,7 +2052,6 @@ def render_analytics_app():
         else:
             st.info("قم بتعيين عمود الربح (Profit) من الشريط الجانبي")
 
-    # ---------- SEGMENTS ----------
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM & Clustering")
         seg_tab1, seg_tab2 = st.tabs(["RFM Analysis","Advanced Clustering"])
@@ -2167,7 +2104,6 @@ def render_analytics_app():
                         except Exception as e:
                             st.error(f"Error: {e}")
 
-    # ---------- BASKET ----------
     with tabs[5]:
         sec_header("05", "Market Basket Analysis", "Apriori Association Rules")
         if not is_pro:
@@ -2199,7 +2135,6 @@ def render_analytics_app():
             else:
                 st.info("قم بتعيين معرف العميل والمنتج من الشريط الجانبي")
 
-    # ---------- ADVANCED ----------
     with tabs[6]:
         sec_header("06", "Advanced Analytics", "Correlations, Anomalies & Exploration")
         adv1, adv2, adv3 = st.tabs(["Correlations","Anomaly Detection","Data Explorer"])
@@ -2244,7 +2179,6 @@ def render_analytics_app():
             else:
                 st.dataframe(df.sample(min(200,len(df))), use_container_width=True)
 
-    # ---------- REPORT ----------
     with tabs[7]:
         sec_header("07", "Executive Report", "AI-generated summary")
         if st.button("📄 Generate Report"):
@@ -2286,22 +2220,18 @@ def render_analytics_app():
             st.markdown(report)
             st.download_button("📥 Download Report", report, "nexus_report.md", "text/markdown")
 
-    # ---------- PLANS ----------
     with tabs[8]:
         subscription_plans_tab()
 
-    # ---------- AI CHAT ----------
     with tabs[9]:
         chatbot_tab()
 
-# ========================== MODIFIED MAIN ==========================
+# ========================== MAIN ==========================
 def main():
     if "logged_in" not in st.session_state:
         st.session_state.update({"logged_in": False, "user_email": None, "is_admin": False})
 
-    # إذا كان المستخدم مسجلاً ندخل مباشرة
     if st.session_state.get("logged_in", False):
-        # عرض الشريط الجانبي مع خيار تسجيل الخروج
         with st.sidebar:
             st.markdown("### 🔐 الحساب")
             role_label = "👑 مدير" if st.session_state.get("is_admin") else "👤 مستخدم"
@@ -2312,12 +2242,11 @@ def main():
                 st.rerun()
         render_analytics_app()
     else:
-        # المستخدم غير مسجل: عرض عمودين
         col_left, col_right = st.columns([2, 1], gap="large")
         with col_left:
-            render_analytics_app()   # عرض التطبيق مع بيانات الضيف
+            render_analytics_app()
         with col_right:
-            right_login_panel()      # نموذج تسجيل الدخول على اليمين
+            right_login_panel()
 
 if __name__ == "__main__":
     main()
