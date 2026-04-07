@@ -319,6 +319,20 @@ def get_available_plans():
         c.execute("SELECT id, name, price_monthly, price_yearly, max_rows, features FROM subscription_plans WHERE is_active = 1 ORDER BY price_monthly")
         return c.fetchall()
 
+def get_all_plans():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id, name, price_monthly, price_yearly, max_rows, features FROM subscription_plans ORDER BY id")
+        return c.fetchall()
+
+def update_plan(plan_id, price_monthly, price_yearly, max_rows, features):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE subscription_plans SET price_monthly = ?, price_yearly = ?, max_rows = ?, features = ? WHERE id = ?",
+                  (price_monthly, price_yearly, max_rows, features, plan_id))
+        conn.commit()
+        log_system_action("system", "update_plan", f"Updated plan ID {plan_id}")
+
 def get_user_subscription(user_id):
     with get_db() as conn:
         c = conn.cursor()
@@ -342,8 +356,7 @@ def get_user_subscription(user_id):
                 return {"name": free["name"], "max_rows": free["max_rows"], "features": free["features"], "plan_id": free["id"]}
             return None
 
-def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="admin_manual"):
-    """Only call this from admin panel or after payment verification."""
+def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="manual"):
     with get_db() as conn:
         c = conn.cursor()
         # Deactivate old subscriptions
@@ -366,7 +379,19 @@ def get_all_subscriptions():
             JOIN subscription_plans sp ON us.plan_id = sp.id
             ORDER BY us.start_date DESC
         ''')
-        return c.fetchall()
+        rows = c.fetchall()
+        # Convert to list of dicts with proper column names
+        result = []
+        for row in rows:
+            result.append({
+                "user_id": row["user_id"],
+                "email": row["email"],
+                "plan_name": row["plan_name"],
+                "start_date": row["start_date"],
+                "end_date": row["end_date"],
+                "is_active": row["is_active"]
+            })
+        return result
 
 def get_subscription_stats():
     with get_db() as conn:
@@ -509,6 +534,17 @@ h1, h2, h3 {
     border-radius: 20px;
     padding: 1rem 1.2rem;
     margin: 1rem 0;
+}
+/* Make input fields darker */
+input, [data-testid="stTextInput"] input, [data-testid="stTextInput"] div[data-baseweb="input"] {
+    background-color: #eef2ff !important;
+    border-radius: 12px !important;
+    padding: 0.6rem !important;
+    border: 1px solid #cbd5e1 !important;
+}
+[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+    border-color: #8b5cf6 !important;
+    box-shadow: 0 0 0 2px rgba(139,92,246,0.2);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -895,6 +931,7 @@ def mega_admin_dashboard():
         "👤 User Management",
         "📋 Activity Logs",
         "📋 Subscription Management",
+        "💰 Plan Management",
         "⚙️ System Settings",
         "📈 Platform Analytics"
     ])
@@ -1142,8 +1179,11 @@ def mega_admin_dashboard():
         subs = get_all_subscriptions()
         if subs:
             df_subs = pd.DataFrame(subs)
-            df_subs["start_date"] = pd.to_datetime(df_subs["start_date"]).dt.strftime("%Y-%m-%d")
-            df_subs["end_date"] = pd.to_datetime(df_subs["end_date"]).dt.strftime("%Y-%m-%d")
+            # Ensure columns exist
+            if "start_date" in df_subs.columns:
+                df_subs["start_date"] = pd.to_datetime(df_subs["start_date"]).dt.strftime("%Y-%m-%d")
+            if "end_date" in df_subs.columns:
+                df_subs["end_date"] = pd.to_datetime(df_subs["end_date"]).dt.strftime("%Y-%m-%d")
             st.dataframe(df_subs, use_container_width=True)
 
         st.markdown("---")
@@ -1188,8 +1228,24 @@ def mega_admin_dashboard():
             for plan, cnt in plan_counts.items():
                 st.write(f"- {plan}: {cnt} users")
 
-    # ---- TAB 4: SYSTEM SETTINGS ----
+    # ---- TAB 4: PLAN MANAGEMENT (Admin only) ----
     with admin_tabs[4]:
+        sec_header("PLAN MANAGEMENT", "Edit Subscription Plans", "Change prices, limits, features")
+
+        all_plans = get_all_plans()
+        for plan in all_plans:
+            with st.expander(f"✏️ Edit {plan['name']} Plan"):
+                new_price_monthly = st.number_input(f"Monthly Price (${plan['name']})", value=float(plan['price_monthly']), step=1.0, key=f"price_m_{plan['id']}")
+                new_price_yearly = st.number_input(f"Yearly Price (${plan['name']})", value=float(plan['price_yearly']), step=10.0, key=f"price_y_{plan['id']}")
+                new_max_rows = st.number_input(f"Max Rows ({plan['name']})", value=int(plan['max_rows']), step=1000, key=f"rows_{plan['id']}")
+                new_features = st.text_area(f"Features ({plan['name']})", value=plan['features'], height=100, key=f"feat_{plan['id']}")
+                if st.button(f"Update {plan['name']} Plan", key=f"update_plan_{plan['id']}"):
+                    update_plan(plan['id'], new_price_monthly, new_price_yearly, new_max_rows, new_features)
+                    st.success(f"✅ {plan['name']} plan updated successfully.")
+                    st.rerun()
+
+    # ---- TAB 5: SYSTEM SETTINGS ----
+    with admin_tabs[5]:
         sec_header("SETTINGS", "System Configuration", "Platform controls")
 
         col1, col2 = st.columns(2)
@@ -1233,8 +1289,8 @@ def mega_admin_dashboard():
         col2.metric("Total Users", stats["total_users"])
         col3.metric("Total Log Entries", stats["total_actions"])
 
-    # ---- TAB 5: PLATFORM ANALYTICS ----
-    with admin_tabs[5]:
+    # ---- TAB 6: PLATFORM ANALYTICS ----
+    with admin_tabs[6]:
         sec_header("ANALYTICS", "Platform Usage Analytics", "Behavior & engagement insights")
 
         sys_logs = get_system_logs(limit=500)
@@ -1277,12 +1333,12 @@ def mega_admin_dashboard():
         else:
             st.info("No platform analytics data yet.")
 
-# ========================== SUBSCRIPTION PLANS TAB (User View) ==========================
+# ========================== SUBSCRIPTION PLANS TAB (User View with Payment Simulation) ==========================
 def subscription_plans_tab():
     sec_header("PLANS", "Choose Your Plan", "Upgrade for full features")
     
     if not st.session_state.get("logged_in", False):
-        st.info("Please login to view your subscription.")
+        st.info("Please login to view and subscribe to plans.")
         return
     
     user_email = st.session_state["user_email"]
@@ -1310,24 +1366,38 @@ def subscription_plans_tab():
             </div>
             """, unsafe_allow_html=True)
             
-            # Only admin can upgrade users. Regular users see disabled button or message.
-            if st.session_state.get("is_admin", False):
-                if plan['name'] != current_sub['name']:
+            # Admin can assign directly; regular users can purchase with payment simulation
+            if plan['name'] != current_sub['name']:
+                if st.session_state.get("is_admin", False):
                     if st.button(f"Assign {plan['name']} to User", key=f"admin_assign_{plan['id']}"):
-                        # Admin can assign directly
                         if upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="admin_manual"):
                             st.success(f"Successfully assigned {plan['name']} to {user_email}.")
                             st.rerun()
                         else:
                             st.error("Assignment failed.")
                 else:
-                    st.button(f"Current Plan", disabled=True)
+                    # Regular user: show payment simulation form
+                    with st.form(key=f"payment_form_{plan['id']}"):
+                        st.markdown("**💳 Payment Details (Simulated)**")
+                        card_number = st.text_input("Card Number", placeholder="4242 4242 4242 4242", key=f"card_{plan['id']}")
+                        exp_date = st.text_input("Expiry (MM/YY)", placeholder="12/25", key=f"exp_{plan['id']}")
+                        cvv = st.text_input("CVV", type="password", placeholder="123", key=f"cvv_{plan['id']}")
+                        name = st.text_input("Cardholder Name", key=f"name_{plan['id']}")
+                        submitted = st.form_submit_button(f"Subscribe to {plan['name']} - ${plan['price_monthly']}/month")
+                        if submitted:
+                            # Simulate payment validation
+                            if card_number and exp_date and cvv and name:
+                                # In real app, integrate Stripe/PayPal. Here we simulate success.
+                                success = upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated_card")
+                                if success:
+                                    st.success(f"✅ Payment successful! You are now on {plan['name']} plan.")
+                                    st.rerun()
+                                else:
+                                    st.error("Upgrade failed. Please try again.")
+                            else:
+                                st.error("Please fill all payment fields.")
             else:
-                # Regular user: cannot upgrade themselves
-                if plan['name'] != current_sub['name']:
-                    st.info("🔒 Upgrades are managed by admin. Please contact support.")
-                else:
-                    st.button(f"Current Plan", disabled=True)
+                st.button(f"Current Plan", disabled=True)
 
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
