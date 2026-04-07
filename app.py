@@ -83,27 +83,20 @@ def read_csv_with_encoding(uploaded_file):
     
     def try_parse_date_column(series):
         """محاولة تحويل عمود إلى تاريخ بأمان"""
-        # 1. إزالة شرط الـ object للسماح بفحص الأرقام التي قد تكون تواريخ (مثل 20230514)
-        # إذا كان العمود من نوع datetime أصلاً، لا داعي لمعالجته
         if pd.api.types.is_datetime64_any_dtype(series):
             return series
 
-        # تجاهل الأعمدة الرقمية التي تحتوي على أرقام صغيرة (مثل الكميات أو الأسعار)
-        # للتركيز على الأرقام التي تشبه YYYYMMDD
         if pd.api.types.is_numeric_dtype(series):
             if series.dropna().mean() < 100000:  
                 return None
 
-        # 2. تحويل العينة إلى نص لضمان نجاح عملية الفحص
         sample = series.dropna().astype(str).head(50)
         if len(sample) == 0:
             return None
         
-        # تجربة كل صيغة تاريخ
         for fmt in DATE_FORMATS:
             try:
                 parsed = pd.to_datetime(sample, format=fmt, errors='raise')
-                # إذا نجح مع العينة، نطبقه على السلسلة كاملة
                 full_parsed = pd.to_datetime(series.astype(str), format=fmt, errors='coerce')
                 success_rate = full_parsed.notna().mean()
                 if success_rate > 0.7:
@@ -111,7 +104,6 @@ def read_csv_with_encoding(uploaded_file):
             except (ValueError, TypeError):
                 continue
         
-        # 3. محاولة التحليل التلقائي مع دعم Pandas الحديث
         try:
             full_parsed = pd.to_datetime(series.astype(str), format='mixed', errors='coerce')
             success_rate = full_parsed.notna().mean()
@@ -127,9 +119,7 @@ def read_csv_with_encoding(uploaded_file):
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, encoding=enc)
             
-            # اكتشاف وتحويل أعمدة التاريخ
             for col in df.columns:
-                # إزالة قيد الـ object من هنا أيضاً
                 parsed = try_parse_date_column(df[col])
                 if parsed is not None:
                     df[col] = parsed
@@ -671,7 +661,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
 }
 
 /* ===== BUTTONS ===== */
-/* ابحث عن هذا الجزء في كودك وقم بتحديثه ليصبح هكذا */
 .stButton > button {
     background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
     color: white !important;
@@ -684,14 +673,11 @@ html, body, [data-testid="stAppViewContainer"], .main {
     transition: all 0.3s ease !important;
     box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3) !important;
     font-family: 'Space Grotesk', sans-serif !important;
-    
-    /* الخصائص الجديدة لمنع التداخل */
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
     gap: 8px !important;
-}mportant;
-
+}
 
 /* ===== INPUT FIELDS ===== */
 .stTextInput > div > div > input,
@@ -778,7 +764,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
 }
 
 /* ===== CHAT - FIX #2: PROPER MESSAGE CONTAINERS ===== */
-/* Chat input */
 [data-testid="stChatInput"] {
     background: var(--bg-secondary) !important;
     border: 1px solid rgba(124, 58, 237, 0.3) !important;
@@ -794,7 +779,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     min-height: 52px !important;
 }
 
-/* Chat message containers - KEY FIX */
 [data-testid="stChatMessage"] {
     background: transparent !important;
     border: none !important;
@@ -802,7 +786,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     margin-bottom: 1rem !important;
 }
 
-/* User chat messages */
 [data-testid="stChatMessage"][data-testid*="user"] .stMarkdown,
 .stChatMessage[aria-label*="user"] .stMarkdown {
     background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(79, 70, 229, 0.15)) !important;
@@ -818,7 +801,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     min-height: unset !important;
 }
 
-/* Assistant chat messages */
 [data-testid="stChatMessage"][data-testid*="assistant"] .stMarkdown,
 .stChatMessage[aria-label*="assistant"] .stMarkdown {
     background: linear-gradient(135deg, var(--bg-card), rgba(6, 182, 212, 0.05)) !important;
@@ -834,7 +816,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     min-height: unset !important;
 }
 
-/* General stMarkdown inside chat - ensure no height clipping */
 [data-testid="stChatMessage"] .stMarkdown p,
 [data-testid="stChatMessage"] .stMarkdown {
     height: auto !important;
@@ -843,7 +824,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     word-break: break-word !important;
 }
 
-/* Custom chat bubble styles */
 .chat-message {
     display: flex;
     align-items: flex-start;
@@ -876,7 +856,6 @@ html, body, [data-testid="stAppViewContainer"], .main {
     border: 1px solid rgba(6, 182, 212, 0.4);
 }
 
-/* FIX #2: Chat bubbles properly expand to hold full content */
 .chat-bubble {
     padding: 1rem 1.25rem !important;
     border-radius: var(--radius-md) !important;
@@ -886,13 +865,10 @@ html, body, [data-testid="stAppViewContainer"], .main {
     word-wrap: break-word !important;
     word-break: break-word !important;
     white-space: pre-wrap !important;
-    
-    /* CRITICAL: these prevent clipping */
     height: auto !important;
     min-height: unset !important;
     max-height: none !important;
     overflow: visible !important;
-    
     max-width: 75vw;
 }
 .chat-message.user .chat-bubble {
@@ -1239,19 +1215,16 @@ def detect_column_types(df):
         if len(sample) == 0:
             return False
         
-        # تجربة كل صيغة
         for fmt in DATE_FORMATS:
             try:
                 parsed = pd.to_datetime(sample, format=fmt, errors='raise')
                 if len(parsed) > 0:
-                    # تأكيد على الملف الكامل
                     full_parsed = pd.to_datetime(series, format=fmt, errors='coerce')
                     if full_parsed.notna().mean() > 0.7:
                         return True
             except:
                 continue
         
-        # المحاولة التلقائية
         try:
             parsed = pd.to_datetime(sample, infer_datetime_format=True, errors='coerce')
             if parsed.notna().mean() > 0.8:
@@ -1299,7 +1272,7 @@ def smart_clean(df, roles, manual_date_format=None):
     
     for col in roles["date"]:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
-            continue  # already datetime
+            continue
         
         if manual_date_format:
             try:
@@ -1310,7 +1283,6 @@ def smart_clean(df, roles, manual_date_format=None):
             except:
                 pass
         
-        # تجربة كل الصيغ
         success = False
         for fmt in DATE_FORMATS:
             try:
@@ -1323,7 +1295,6 @@ def smart_clean(df, roles, manual_date_format=None):
                 continue
         
         if not success:
-            # آخر محاولة
             try:
                 df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
             except:
@@ -1560,7 +1531,6 @@ def chatbot_tab():
             st.session_state.chat_messages = [{"role": "assistant", "content": "تم مسح المحادثة! كيف يمكنني مساعدتك؟"}]
             st.rerun()
 
-    # FIX #2: Use st.chat_message for proper auto-expanding bubbles
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -1808,9 +1778,27 @@ def subscription_plans_tab():
 
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
-    for k in ["df","roles","source","col_map"]:
-        if k not in st.session_state:
-            st.session_state[k] = None if k != "col_map" else {}
+    # تهيئة session_state بشكل آمن
+    defaults = {
+        "df": None,
+        "roles": {},
+        "source": None,
+        "col_map": {
+            "sales": "—",
+            "profit": "—",
+            "date": "—",
+            "category": "—",
+            "customer": "—",
+            "product": "—"
+        }
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
+    # تأكد من وجود جميع مفاتيح col_map
+    for k in ["sales", "profit", "date", "category", "customer", "product"]:
+        if k not in st.session_state["col_map"]:
+            st.session_state["col_map"][k] = "—"
 
     user_plan = None
     if st.session_state.get("logged_in", False):
@@ -1881,10 +1869,31 @@ def render_analytics_app():
                             if st.session_state["source"] != uploaded.name:
                                 roles = detect_column_types(df_new)
                                 df_clean = smart_clean(df_new, roles)
-                                st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name, "col_map": {}})
+                                st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name})
+                                # لا نعيد تعيين col_map بالكامل، فقط نحاول التخمين التلقائي
+                                cm = st.session_state["col_map"].copy()
+                                for col in df_new.columns:
+                                    col_lower = col.lower()
+                                    if cm["sales"] == "—" and col in roles["numeric"]:
+                                        if any(kw in col_lower for kw in ['sales','revenue','amount','price','total']):
+                                            cm["sales"] = col
+                                    if cm["profit"] == "—" and col in roles["numeric"]:
+                                        if any(kw in col_lower for kw in ['profit','income','earning']):
+                                            cm["profit"] = col
+                                    if cm["date"] == "—" and col in roles["date"]:
+                                        cm["date"] = col
+                                    if cm["category"] == "—" and col in roles["categorical"]:
+                                        if any(kw in col_lower for kw in ['category','type','class','segment','product']):
+                                            cm["category"] = col
+                                    if cm["customer"] == "—" and (col in roles["id"] or col in roles["categorical"]):
+                                        if any(kw in col_lower for kw in ['customer','client','user','id']):
+                                            cm["customer"] = col
+                                    if cm["product"] == "—" and col in roles["categorical"]:
+                                        if 'product' in col_lower:
+                                            cm["product"] = col
+                                st.session_state["col_map"] = cm
                                 log_system_action(st.session_state.get("user_email","guest"), "upload_file", uploaded.name)
                             
-                            # FIX #1: Show detected date columns
                             date_cols = st.session_state["roles"].get("date", [])
                             if date_cols:
                                 st.success(f"📅 Date columns detected: {', '.join(date_cols)}")
@@ -1901,7 +1910,16 @@ def render_analytics_app():
                 else:
                     roles = detect_column_types(df_bi)
                     df_clean = smart_clean(df_bi, roles)
-                    st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin", "col_map": {}})
+                    st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin"})
+                    # تخمين تلقائي للأعمدة للبيانات المدمجة
+                    cm = st.session_state["col_map"].copy()
+                    cm["sales"] = "Sales"
+                    cm["profit"] = "Profit"
+                    cm["date"] = "Order Date"
+                    cm["category"] = "Category"
+                    cm["customer"] = "Sub-Region"  # لا يوجد معرف عميل، نستخدم المنطقة كمثال
+                    cm["product"] = "Category"  # نستخدم الفئة كمنتج
+                    st.session_state["col_map"] = cm
                     log_system_action(st.session_state.get("user_email","guest"), "load_builtin")
                 st.success("✅ Built-in dataset ready")
 
@@ -1917,23 +1935,10 @@ def render_analytics_app():
             cm = st.session_state["col_map"]
 
             def safe_index(lst, val):
-                return lst.index(val) if val in lst else 0
-
-            # FIX #1: Auto-detect and pre-fill column mapping
-            if not cm and roles:
-                # محاولة تخمين أعمدة تلقائياً
-                for col in df.columns:
-                    col_lower = col.lower()
-                    if any(kw in col_lower for kw in ['sales','revenue','amount','price','total']) and col in num_c:
-                        cm['sales'] = col
-                    elif any(kw in col_lower for kw in ['profit','income','earning']) and col in num_c:
-                        cm['profit'] = col
-                    elif col in date_c and cm.get('date','—') == '—':
-                        cm['date'] = col
-                    elif any(kw in col_lower for kw in ['category','type','class','segment','product']) and col in cat_c:
-                        if cm.get('category','—') == '—': cm['category'] = col
-                    elif any(kw in col_lower for kw in ['customer','client','user','id']) and col in id_c:
-                        if cm.get('customer','—') == '—': cm['customer'] = col
+                try:
+                    return lst.index(val)
+                except ValueError:
+                    return 0
 
             cm["sales"] = st.selectbox("💰 Sales", num_c, index=safe_index(num_c, cm.get("sales","—")), key="map_sales")
             cm["profit"] = st.selectbox("📈 Profit", num_c, index=safe_index(num_c, cm.get("profit","—")), key="map_profit")
@@ -1967,7 +1972,6 @@ def render_analytics_app():
         c3.metric("⚠️ Missing", f"{df.isnull().sum().sum():,}")
         c4.metric("💾 Memory", f"{df.memory_usage(deep=True).sum()/1024/1024:.2f} MB")
         
-        # FIX #1: Show column type summary
         roles = st.session_state["roles"]
         col1, col2 = st.columns([3,1])
         with col2:
@@ -1985,10 +1989,12 @@ def render_analytics_app():
     # ---------- KPIs ----------
     with tabs[1]:
         sec_header("01", "Key Performance Indicators", "Revenue & Profit Analysis")
-        sales_col = st.session_state["col_map"].get("sales","—")
-        profit_col = st.session_state["col_map"].get("profit","—")
-        date_col = st.session_state["col_map"].get("date","—")
-        cat_col = st.session_state["col_map"].get("category","—")
+        cm = st.session_state.get("col_map", {})
+        sales_col = cm.get("sales", "—")
+        profit_col = cm.get("profit", "—")
+        date_col = cm.get("date", "—")
+        cat_col = cm.get("category", "—")
+        
         if sales_col != "—" and sales_col in df.columns:
             total_rev = df[sales_col].sum()
             total_profit = df[profit_col].sum() if profit_col != "—" and profit_col in df.columns else None
@@ -1999,6 +2005,7 @@ def render_analytics_app():
             if total_profit: c2.metric("📈 Total Profit", fmt_num(total_profit, prefix="$"))
             if margin: c3.metric("📊 Profit Margin", f"{margin:.1f}%")
             c4.metric("🛒 Avg Order", fmt_num(avg_order, prefix="$"))
+            
             if date_col != "—" and date_col in df.columns:
                 col1,col2 = st.columns(2)
                 with col1:
@@ -2011,7 +2018,7 @@ def render_analytics_app():
                         fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category", color=sales_col, color_continuous_scale="Viridis")
                         st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
         else:
-            st.info("👈 Map a Sales column in the sidebar.")
+            st.info("👈 قم بتعيين عمود المبيعات (Sales) من الشريط الجانبي")
 
     # ---------- FORECAST ----------
     with tabs[2]:
@@ -2019,8 +2026,9 @@ def render_analytics_app():
         if not is_pro:
             st.warning("🔒 Forecasting is available in Pro and Enterprise plans only.")
         else:
-            sales_col = st.session_state["col_map"].get("sales","—")
-            date_col = st.session_state["col_map"].get("date","—")
+            cm = st.session_state.get("col_map", {})
+            sales_col = cm.get("sales", "—")
+            date_col = cm.get("date", "—")
             if sales_col != "—" and date_col != "—" and all(c in df.columns for c in [sales_col, date_col]):
                 c1,c2 = st.columns(2)
                 with c1: horizon = st.slider("Horizon (periods)", 3, 36, 12)
@@ -2043,12 +2051,13 @@ def render_analytics_app():
                         except Exception as e:
                             st.error(f"Error: {e}")
             else:
-                st.info("Map Sales and Date columns.")
+                st.info("قم بتعيين عمودي التاريخ والمبيعات من الشريط الجانبي")
 
     # ---------- OPTIMIZER ----------
     with tabs[3]:
         sec_header("03", "AI Profit Optimizer", "Ensemble ML Model")
-        profit_col = st.session_state["col_map"].get("profit","—")
+        cm = st.session_state.get("col_map", {})
+        profit_col = cm.get("profit", "—")
         if profit_col != "—" and profit_col in df.columns:
             available = [c for c in df.columns if c != profit_col]
             features = st.multiselect("Select Features", available, default=[])
@@ -2077,16 +2086,17 @@ def render_analytics_app():
                     except Exception as e:
                         st.error(f"Error: {e}")
         else:
-            st.info("Map a Profit column.")
+            st.info("قم بتعيين عمود الربح (Profit) من الشريط الجانبي")
 
     # ---------- SEGMENTS ----------
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM & Clustering")
         seg_tab1, seg_tab2 = st.tabs(["RFM Analysis","Advanced Clustering"])
+        cm = st.session_state.get("col_map", {})
         with seg_tab1:
-            cust_col = st.session_state["col_map"].get("customer","—")
-            sales_col = st.session_state["col_map"].get("sales","—")
-            date_col = st.session_state["col_map"].get("date","—")
+            cust_col = cm.get("customer", "—")
+            sales_col = cm.get("sales", "—")
+            date_col = cm.get("date", "—")
             if all(c != "—" and c in df.columns for c in [cust_col, sales_col, date_col]):
                 if st.button("🔍 Run RFM Analysis"):
                     rfm = compute_rfm(df, date_col, sales_col, cust_col)
@@ -2101,7 +2111,7 @@ def render_analytics_app():
                             fig2 = px.scatter(rfm, x="Frequency", y="Monetary", color="Segment", size="RFM_Score", title="RFM Scatter")
                             st.plotly_chart(apply_plot_style(fig2), use_container_width=True)
             else:
-                st.info("Map Customer ID, Sales, and Date columns.")
+                st.info("قم بتعيين معرف العميل والتاريخ والمبيعات من الشريط الجانبي")
         with seg_tab2:
             if not is_pro:
                 st.info("🔒 Clustering is a Pro/Enterprise feature.")
@@ -2139,8 +2149,9 @@ def render_analytics_app():
         elif not MLXTEND_AVAILABLE:
             st.warning("Install mlxtend: pip install mlxtend")
         else:
-            cust_col = st.session_state["col_map"].get("customer","—")
-            prod_col = st.session_state["col_map"].get("product","—")
+            cm = st.session_state.get("col_map", {})
+            cust_col = cm.get("customer", "—")
+            prod_col = cm.get("product", "—")
             if cust_col != "—" and prod_col != "—" and all(c in df.columns for c in [cust_col, prod_col]):
                 c1,c2 = st.columns(2)
                 with c1: min_sup = st.slider("Min Support", 0.005, 0.1, 0.01, 0.005)
@@ -2160,7 +2171,7 @@ def render_analytics_app():
                         except Exception as e:
                             st.error(f"Error: {e}")
             else:
-                st.info("Map Customer ID and Product columns.")
+                st.info("قم بتعيين معرف العميل والمنتج من الشريط الجانبي")
 
     # ---------- ADVANCED ----------
     with tabs[6]:
@@ -2192,7 +2203,8 @@ def render_analytics_app():
                     except Exception as e:
                         st.error(f"Error: {e}")
         with adv3:
-            date_col = st.session_state["col_map"].get("date","—")
+            cm = st.session_state.get("col_map", {})
+            date_col = cm.get("date", "—")
             if date_col != "—" and date_col in df.columns:
                 min_d, max_d = df[date_col].min().date(), df[date_col].max().date()
                 date_range = st.date_input("Date Range", [min_d, max_d])
@@ -2210,10 +2222,11 @@ def render_analytics_app():
     with tabs[7]:
         sec_header("07", "Executive Report", "AI-generated summary")
         if st.button("📄 Generate Report"):
-            sales_col = st.session_state["col_map"].get("sales","—")
-            profit_col = st.session_state["col_map"].get("profit","—")
-            cat_col = st.session_state["col_map"].get("category","—")
-            date_col = st.session_state["col_map"].get("date","—")
+            cm = st.session_state.get("col_map", {})
+            sales_col = cm.get("sales", "—")
+            profit_col = cm.get("profit", "—")
+            cat_col = cm.get("category", "—")
+            date_col = cm.get("date", "—")
             total_rev = df[sales_col].sum() if sales_col != "—" and sales_col in df.columns else 0
             total_profit = df[profit_col].sum() if profit_col != "—" and profit_col in df.columns else 0
             margin = (total_profit/total_rev*100) if total_rev else 0
