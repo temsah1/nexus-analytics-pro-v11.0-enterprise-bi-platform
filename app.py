@@ -466,7 +466,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# DARK THEME HIGH CONTRAST CSS
+# DARK THEME HIGH CONTRAST CSS (including visible file uploader button)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -678,6 +678,28 @@ input::placeholder, textarea::placeholder {
 [data-baseweb="menu"] div:hover {
     background: #334155 !important;
 }
+
+/* ========== FIX: VISIBLE FILE UPLOAD BUTTON ========== */
+div[data-testid="stFileUploader"] button {
+    background: linear-gradient(95deg, #10b981, #06b6d4) !important;
+    border: 1px solid #34d399 !important;
+    color: white !important;
+    font-weight: bold !important;
+    border-radius: 40px !important;
+    padding: 0.5rem 1rem !important;
+    box-shadow: 0 0 8px rgba(6,182,212,0.5) !important;
+}
+
+div[data-testid="stFileUploader"] button:hover {
+    background: linear-gradient(95deg, #059669, #0891b2) !important;
+    transform: scale(1.02);
+}
+
+div[data-testid="stFileUploader"] span {
+    color: white !important;
+}
+
+/* ==================================================== */
 
 @media (max-width: 768px) {
     .stColumns {
@@ -1063,25 +1085,18 @@ def detect_column_types(df):
         if pd.api.types.is_datetime64_any_dtype(s):
             roles["date"].append(col)
         elif s.dtype == object:
-            sample = s.dropna().head(100)
+            sample = s.dropna().head(1000)  # larger sample for better detection
             if len(sample) > 0:
-                is_date = False
-                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d'):
-                    try:
-                        pd.to_datetime(sample, format=fmt, errors='raise')
-                        is_date = True
-                        break
-                    except:
+                # Try to convert to datetime
+                try:
+                    converted = pd.to_datetime(sample, errors='coerce')
+                    if converted.notna().mean() > 0.8:  # if more than 80% become valid dates
+                        roles["date"].append(col)
                         continue
-                if not is_date:
-                    try:
-                        if pd.to_datetime(sample, errors='coerce').notna().mean() > 0.6:
-                            is_date = True
-                    except:
-                        pass
-                if is_date:
-                    roles["date"].append(col)
-                elif s.nunique() < 50:
+                except:
+                    pass
+                # If not date, check cardinality for categorical
+                if s.nunique() < 50:
                     roles["categorical"].append(col)
                 else:
                     roles["id"].append(col)
@@ -1837,6 +1852,16 @@ def render_analytics_app():
                         if len(df_new) > max_allowed:
                             st.error(f"Dataset has {len(df_new):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use smaller file.")
                         else:
+                            # Enhanced date detection: force conversion on all object columns
+                            for col in df_new.columns:
+                                if df_new[col].dtype == object:
+                                    try:
+                                        converted = pd.to_datetime(df_new[col], errors='coerce')
+                                        if converted.notna().mean() > 0.8:
+                                            df_new[col] = converted
+                                            st.info(f"Auto-detected date column: {col}")
+                                    except:
+                                        pass
                             if st.session_state["source"] != uploaded.name:
                                 st.session_state["df_raw"] = df_new
                                 st.session_state["roles"] = detect_column_types(df_new)
@@ -1869,9 +1894,11 @@ def render_analytics_app():
             st.markdown("---")
             st.markdown("### 🗂️ Column Mapping")
             roles = st.session_state["roles"]
+            # Include all columns in date dropdown (manual override)
+            all_columns = ["—"] + list(df.columns)
+            date_c = all_columns  # allow any column to be selected as date
             num_c = ["—"] + roles["numeric"]
-            date_c = ["—"] + roles["date"]
-            cat_c = ["—"] + roles["categorical"]
+            cat_c = ["—"] + roles["categorical"] + [c for c in df.columns if c not in roles["date"] and c not in roles["numeric"]]
             id_c = ["—"] + roles["id"] + roles["categorical"]
             cm = st.session_state["col_map"]
 
@@ -1880,7 +1907,7 @@ def render_analytics_app():
 
             cm["sales"] = st.selectbox("💰 Sales", num_c, index=safe_index(num_c, cm.get("sales", "—")), key="map_sales")
             cm["profit"] = st.selectbox("📈 Profit", num_c, index=safe_index(num_c, cm.get("profit", "—")), key="map_profit")
-            cm["date"] = st.selectbox("📅 Date", date_c, index=safe_index(date_c, cm.get("date", "—")), key="map_date")
+            cm["date"] = st.selectbox("📅 Date (any column)", date_c, index=safe_index(date_c, cm.get("date", "—")), key="map_date")
             cm["category"] = st.selectbox("🏷️ Category", cat_c, index=safe_index(cat_c, cm.get("category", "—")), key="map_cat")
             cm["customer"] = st.selectbox("👤 Customer ID", id_c, index=safe_index(id_c, cm.get("customer", "—")), key="map_cust")
             cm["product"] = st.selectbox("📦 Product (Basket)", cat_c, index=safe_index(cat_c, cm.get("product", "—")), key="map_prod")
@@ -1940,9 +1967,16 @@ def render_analytics_app():
             if date_col != "—" and date_col in df.columns:
                 col1, col2 = st.columns(2)
                 with col1:
-                    df_ts = df.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
-                    fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Ensure date is datetime
+                    df_ts = df.copy()
+                    df_ts[date_col] = pd.to_datetime(df_ts[date_col], errors='coerce')
+                    df_ts = df_ts.dropna(subset=[date_col])
+                    if not df_ts.empty:
+                        df_ts = df_ts.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
+                        fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("No valid dates for time series.")
                 with col2:
                     if cat_col != "—" and cat_col in df.columns:
                         cat_sales = df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(sales_col, ascending=False)
@@ -1969,8 +2003,10 @@ def render_analytics_app():
                 if st.button("Run Forecast"):
                     with st.spinner("Building forecast..."):
                         try:
-                            date_json = df[date_col].astype(str).to_json()
-                            val_json = df[sales_col].to_json()
+                            # Ensure date is datetime
+                            date_series = pd.to_datetime(df[date_col], errors='coerce')
+                            date_json = date_series.dropna().astype(str).to_json()
+                            val_json = df.loc[date_series.notna(), sales_col].to_json()
                             hist, fcast, model_name = build_forecast(date_json, val_json, horizon, freq_key)
                             if hist is None:
                                 st.error("Failed to build forecast. Install statsmodels or prophet.")
@@ -2159,16 +2195,21 @@ def render_analytics_app():
         with adv_tab3:
             date_col = st.session_state["col_map"].get("date", "—")
             if date_col != "—" and date_col in df.columns:
-                min_d = df[date_col].min().date()
-                max_d = df[date_col].max().date()
-                date_range = st.date_input("Date Range", [min_d, max_d])
-                if len(date_range) == 2:
-                    mask = (df[date_col] >= pd.to_datetime(date_range[0])) & (df[date_col] <= pd.to_datetime(date_range[1]))
-                    filtered_df = df[mask]
-                    st.write(f"Showing {len(filtered_df):,} of {len(df):,} rows")
-                    st.dataframe(filtered_df, use_container_width=True)
-                    csv = filtered_df.to_csv(index=False)
-                    st.download_button("Export CSV", csv, "filtered.csv", "text/csv")
+                try:
+                    date_series = pd.to_datetime(df[date_col], errors='coerce')
+                    min_d = date_series.min().date()
+                    max_d = date_series.max().date()
+                    date_range = st.date_input("Date Range", [min_d, max_d])
+                    if len(date_range) == 2:
+                        mask = (date_series >= pd.to_datetime(date_range[0])) & (date_series <= pd.to_datetime(date_range[1]))
+                        filtered_df = df[mask]
+                        st.write(f"Showing {len(filtered_df):,} of {len(df):,} rows")
+                        st.dataframe(filtered_df, use_container_width=True)
+                        csv = filtered_df.to_csv(index=False)
+                        st.download_button("Export CSV", csv, "filtered.csv", "text/csv")
+                except Exception as e:
+                    st.warning(f"Date filtering error: {e}")
+                    st.dataframe(df.sample(min(200, len(df))), use_container_width=True)
             else:
                 st.info("Map a Date column for filtering.")
                 st.dataframe(df.sample(min(200, len(df))), use_container_width=True)
@@ -2193,7 +2234,8 @@ def render_analytics_app():
             date_range_str = "N/A"
             if date_col != "—" and date_col in df.columns:
                 try:
-                    date_range_str = f"{df[date_col].min().date()} → {df[date_col].max().date()}"
+                    date_series = pd.to_datetime(df[date_col], errors='coerce')
+                    date_range_str = f"{date_series.min().date()} → {date_series.max().date()}"
                 except:
                     pass
             missing_pct = df.isnull().sum().sum() / (df.shape[0] * df.shape[1]) * 100
