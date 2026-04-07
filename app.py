@@ -51,7 +51,7 @@ except ImportError:
 
 # ========================== CONFIGURATION ==========================
 MAX_FILE_SIZE_MB = 1000
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024  # Fix: removed extra *5
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 GUEST_MAX_ROWS = 1000
 
 CONFIG_DIR = Path(".streamlit")
@@ -64,11 +64,8 @@ if not CONFIG_FILE.exists():
 maxUploadSize = {MAX_FILE_SIZE_MB}
 """)
 
-# ========================== FIX #1: ENHANCED ENCODING & DATE DETECTION ==========================
+# ========================== ENHANCED ENCODING & DATE DETECTION ==========================
 def read_csv_with_encoding(uploaded_file):
-    """
-    قراءة ملفات CSV مع دعم كامل للترميزات المختلفة واكتشاف التواريخ تلقائياً
-    """
     encodings = ['utf-8', 'windows-1256', 'iso-8859-6', 'iso-8859-1', 'cp1252', 'latin1', 'utf-8-sig']
     
     DATE_FORMATS = [
@@ -84,7 +81,7 @@ def read_csv_with_encoding(uploaded_file):
         if pd.api.types.is_datetime64_any_dtype(series):
             return series
         if pd.api.types.is_numeric_dtype(series):
-            if series.dropna().mean() < 100000:  
+            if series.dropna().mean() < 100000:
                 return None
         sample = series.dropna().astype(str).head(50)
         if len(sample) == 0:
@@ -549,6 +546,34 @@ html, body, [data-testid="stAppViewContainer"], .main {
     text-transform: uppercase !important;
 }
 
+/* ===== SIDEBAR EXPANDER FIX ===== */
+[data-testid="stSidebar"] details summary {
+    list-style: none !important;
+    position: relative;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 8px 0;
+}
+[data-testid="stSidebar"] details summary::before {
+    content: "▶" !important;
+    font-size: 12px;
+    margin-right: 10px;
+    display: inline-block;
+    transition: transform 0.2s;
+    color: #7c3aed;
+}
+[data-testid="stSidebar"] details[open] summary::before {
+    transform: rotate(90deg);
+}
+[data-testid="stSidebar"] details summary::-webkit-details-marker {
+    display: none;
+}
+[data-testid="stSidebar"] .stRadio > div {
+    flex-direction: column !important;
+    gap: 8px !important;
+    margin-bottom: 12px;
+}
+
 .nx-header {
     background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(6, 182, 212, 0.1)) !important;
     border: 1px solid rgba(124, 58, 237, 0.3) !important;
@@ -739,7 +764,7 @@ html, body, [data-testid="stAppViewContainer"], .main {
     font-family: 'Space Grotesk', sans-serif !important;
 }
 
-/* ===== ENHANCED CHAT UI ===== */
+/* ===== CHAT UI ===== */
 .chat-container {
     background: rgba(17, 24, 39, 0.6);
     backdrop-filter: blur(12px);
@@ -1796,7 +1821,6 @@ def render_analytics_app():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            # Admin button if admin
             if st.session_state.get("is_admin", False):
                 if st.button("🛡️ Admin Dashboard", use_container_width=True):
                     st.session_state.admin_mode = True
@@ -1810,89 +1834,100 @@ def render_analytics_app():
             </div>
             """, unsafe_allow_html=True)
 
-        # DATA SOURCE as expander (arrow)
-        with st.expander("📂 DATA SOURCE", expanded=True):
-            source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
+        # DATA SOURCE as expander (using sidebar.expander)
+        with st.sidebar.expander("📂 DATA SOURCE", expanded=True):
+            source = st.radio(
+                "",
+                ["📦 Built-in Dataset", "📂 Upload File"],
+                label_visibility="collapsed",
+                key="data_source"
+            )
+            st.markdown("---")  # visual separator
 
-        if source == "📂 Upload File":
-            uploaded = st.file_uploader(f"CSV / Excel / JSON", type=["csv","xlsx","xls","json"], key="file_upload")
-            if uploaded:
-                if uploaded.size > MAX_FILE_SIZE_BYTES:
-                    st.error(f"File exceeds {MAX_FILE_SIZE_MB} MB.")
-                else:
-                    try:
-                        if uploaded.name.endswith('.csv'):
-                            try:
-                                df_new, used_enc = read_csv_with_encoding(uploaded)
-                                st.success(f"✅ Loaded ({used_enc})")
-                            except:
-                                manual_enc = st.selectbox("Encoding", ['utf-8','windows-1256','iso-8859-1','cp1252'])
-                                uploaded.seek(0)
-                                df_new = pd.read_csv(uploaded, encoding=manual_enc)
-                                st.success(f"✅ Loaded ({manual_enc})")
-                        elif uploaded.name.endswith('.json'):
-                            df_new = pd.read_json(uploaded)
-                        else:
-                            df_new = pd.read_excel(uploaded)
-
-                        max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
-                        if len(df_new) > max_allowed:
-                            st.error(f"⚠️ {len(df_new):,} rows > {max_allowed:,} limit. Upgrade plan.")
-                        else:
-                            if st.session_state["source"] != uploaded.name:
-                                roles = detect_column_types(df_new)
-                                df_clean = smart_clean(df_new, roles)
-                                st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name})
-                                cm = st.session_state["col_map"].copy()
-                                for col in df_new.columns:
-                                    col_lower = col.lower()
-                                    if cm["sales"] == "—" and col in roles["numeric"]:
-                                        if any(kw in col_lower for kw in ['sales','revenue','amount','price','total']):
-                                            cm["sales"] = col
-                                    if cm["profit"] == "—" and col in roles["numeric"]:
-                                        if any(kw in col_lower for kw in ['profit','income','earning']):
-                                            cm["profit"] = col
-                                    if cm["date"] == "—" and col in roles["date"]:
-                                        cm["date"] = col
-                                    if cm["category"] == "—" and col in roles["categorical"]:
-                                        if any(kw in col_lower for kw in ['category','type','class','segment','product']):
-                                            cm["category"] = col
-                                    if cm["customer"] == "—" and (col in roles["id"] or col in roles["categorical"]):
-                                        if any(kw in col_lower for kw in ['customer','client','user','id']):
-                                            cm["customer"] = col
-                                    if cm["product"] == "—" and col in roles["categorical"]:
-                                        if 'product' in col_lower:
-                                            cm["product"] = col
-                                st.session_state["col_map"] = cm
-                                log_system_action(st.session_state.get("user_email","guest"), "upload_file", uploaded.name)
-                            
-                            date_cols = st.session_state["roles"].get("date", [])
-                            if date_cols:
-                                st.success(f"📅 Date columns detected: {', '.join(date_cols)}")
+            if source == "📂 Upload File":
+                uploaded = st.file_uploader(
+                    "رفع ملف CSV / Excel / JSON",
+                    type=["csv", "xlsx", "xls", "json"],
+                    key="file_upload",
+                    help="الحد الأقصى للحجم 1000 ميجابايت"
+                )
+                if uploaded:
+                    if uploaded.size > MAX_FILE_SIZE_BYTES:
+                        st.error(f"File exceeds {MAX_FILE_SIZE_MB} MB.")
+                    else:
+                        try:
+                            if uploaded.name.endswith('.csv'):
+                                try:
+                                    df_new, used_enc = read_csv_with_encoding(uploaded)
+                                    st.success(f"✅ Loaded ({used_enc})")
+                                except:
+                                    manual_enc = st.selectbox("Encoding", ['utf-8','windows-1256','iso-8859-1','cp1252'])
+                                    uploaded.seek(0)
+                                    df_new = pd.read_csv(uploaded, encoding=manual_enc)
+                                    st.success(f"✅ Loaded ({manual_enc})")
+                            elif uploaded.name.endswith('.json'):
+                                df_new = pd.read_json(uploaded)
                             else:
-                                st.warning("⚠️ No date columns detected. Check column mapping below.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-        else:
-            if st.session_state["source"] != "builtin":
-                df_bi = load_builtin_dataset()
-                max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
-                if len(df_bi) > max_allowed:
-                    st.error(f"Dataset {len(df_bi):,} rows > {max_allowed:,} limit.")
-                else:
-                    roles = detect_column_types(df_bi)
-                    df_clean = smart_clean(df_bi, roles)
-                    st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin"})
-                    cm = st.session_state["col_map"].copy()
-                    cm["sales"] = "Sales"
-                    cm["profit"] = "Profit"
-                    cm["date"] = "Order Date"
-                    cm["category"] = "Category"
-                    cm["customer"] = "Sub-Region"
-                    cm["product"] = "Category"
-                    st.session_state["col_map"] = cm
-                    log_system_action(st.session_state.get("user_email","guest"), "load_builtin")
-                st.success("✅ Built-in dataset ready")
+                                df_new = pd.read_excel(uploaded)
+
+                            max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
+                            if len(df_new) > max_allowed:
+                                st.error(f"⚠️ {len(df_new):,} rows > {max_allowed:,} limit. Upgrade plan.")
+                            else:
+                                if st.session_state["source"] != uploaded.name:
+                                    roles = detect_column_types(df_new)
+                                    df_clean = smart_clean(df_new, roles)
+                                    st.session_state.update({"df_raw": df_new, "roles": roles, "df": df_clean, "source": uploaded.name})
+                                    cm = st.session_state["col_map"].copy()
+                                    for col in df_new.columns:
+                                        col_lower = col.lower()
+                                        if cm["sales"] == "—" and col in roles["numeric"]:
+                                            if any(kw in col_lower for kw in ['sales','revenue','amount','price','total']):
+                                                cm["sales"] = col
+                                        if cm["profit"] == "—" and col in roles["numeric"]:
+                                            if any(kw in col_lower for kw in ['profit','income','earning']):
+                                                cm["profit"] = col
+                                        if cm["date"] == "—" and col in roles["date"]:
+                                            cm["date"] = col
+                                        if cm["category"] == "—" and col in roles["categorical"]:
+                                            if any(kw in col_lower for kw in ['category','type','class','segment','product']):
+                                                cm["category"] = col
+                                        if cm["customer"] == "—" and (col in roles["id"] or col in roles["categorical"]):
+                                            if any(kw in col_lower for kw in ['customer','client','user','id']):
+                                                cm["customer"] = col
+                                        if cm["product"] == "—" and col in roles["categorical"]:
+                                            if 'product' in col_lower:
+                                                cm["product"] = col
+                                    st.session_state["col_map"] = cm
+                                    log_system_action(st.session_state.get("user_email","guest"), "upload_file", uploaded.name)
+                                
+                                date_cols = st.session_state["roles"].get("date", [])
+                                if date_cols:
+                                    st.success(f"📅 Date columns detected: {', '.join(date_cols)}")
+                                else:
+                                    st.warning("⚠️ No date columns detected. Check column mapping below.")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            else:  # Built-in dataset
+                if st.session_state["source"] != "builtin":
+                    df_bi = load_builtin_dataset()
+                    max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
+                    if len(df_bi) > max_allowed:
+                        st.error(f"Dataset {len(df_bi):,} rows > {max_allowed:,} limit.")
+                    else:
+                        roles = detect_column_types(df_bi)
+                        df_clean = smart_clean(df_bi, roles)
+                        st.session_state.update({"df_raw": df_bi, "roles": roles, "df": df_clean, "source": "builtin"})
+                        cm = st.session_state["col_map"].copy()
+                        cm["sales"] = "Sales"
+                        cm["profit"] = "Profit"
+                        cm["date"] = "Order Date"
+                        cm["category"] = "Category"
+                        cm["customer"] = "Sub-Region"
+                        cm["product"] = "Category"
+                        st.session_state["col_map"] = cm
+                        log_system_action(st.session_state.get("user_email","guest"), "load_builtin")
+                    st.success("✅ Built-in dataset ready")
 
         df = st.session_state.get("df")
         if df is not None:
