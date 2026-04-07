@@ -604,8 +604,8 @@ custom_dark_template = go.layout.Template(
 def apply_plot_style(fig):
     fig.update_layout(template=custom_dark_template)
     # إضافة شبكة خفيفة
-   fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#334155')
-    fig.update_yaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+fig.update_yaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
     return fig
 
 # تعيين القالب الافتراضي لـ plotly express أيضاً
