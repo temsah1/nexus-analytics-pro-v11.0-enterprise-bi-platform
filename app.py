@@ -52,7 +52,7 @@ except ImportError:
 # ========================== CONFIGURATION ==========================
 MAX_FILE_SIZE_MB = 1000
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-GUEST_MAX_ROWS = 1000  # Guest users have the same limit as Free plan
+GUEST_MAX_ROWS = 1000
 
 CONFIG_DIR = Path(".streamlit")
 CONFIG_FILE = CONFIG_DIR / "config.toml"
@@ -458,7 +458,7 @@ def set_setting(key, value):
         conn.commit()
         log_system_action("system", "update_setting", f"Updated {key}")
 
-# ========================== PAGE CONFIG WITH MOBILE OPTIMIZATION ==========================
+# ========================== PAGE CONFIG WITH DARK MOBILE CSS ==========================
 st.set_page_config(
     page_title="NEXUS Analytics Pro",
     page_icon="🚀",
@@ -466,10 +466,319 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Mobile-responsive CSS (same as original, omitted for brevity but kept in final code)
+# DARK THEME HIGH CONTRAST CSS
 st.markdown("""
 <style>
-/* ... (same CSS as original) ... */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body, .stApp {
+    background: #0f172a !important;
+    font-family: 'Inter', sans-serif;
+    color: #f1f5f9 !important;
+}
+
+[data-testid="stSidebar"] {
+    background: #1e293b !important;
+    border-right: 1px solid #334155 !important;
+}
+
+[data-testid="stSidebar"] * {
+    color: #f1f5f9 !important;
+}
+
+.main > div {
+    background: #0f172a;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #38bdf8 !important;
+    font-weight: 700;
+}
+
+[data-testid="stMetric"] {
+    background: #1e293b !important;
+    border-radius: 20px;
+    padding: 1rem;
+    border: 1px solid #334155;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+[data-testid="stMetric"] * {
+    color: #f1f5f9 !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-size: 1.8rem !important;
+    font-weight: 800 !important;
+    color: #38bdf8 !important;
+}
+
+.stButton > button {
+    background: linear-gradient(95deg, #8b5cf6, #06b6d4) !important;
+    border: none !important;
+    border-radius: 60px !important;
+    padding: 0.6rem 1.4rem !important;
+    font-weight: 600 !important;
+    color: white !important;
+    box-shadow: 0 4px 12px rgba(6,182,212,0.3);
+    transition: all 0.25s ease;
+}
+
+.stButton > button:hover {
+    transform: scale(1.02);
+    background: linear-gradient(95deg, #7c3aed, #0891b2) !important;
+    color: white !important;
+}
+
+input, textarea, select, [data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] {
+    background-color: #1e293b !important;
+    color: #f1f5f9 !important;
+    border: 1px solid #475569 !important;
+    border-radius: 12px !important;
+    padding: 0.6rem !important;
+}
+
+input::placeholder, textarea::placeholder {
+    color: #94a3b8 !important;
+}
+
+.dataframe, .stDataFrame, [data-testid="stDataFrame"] {
+    background: #1e293b !important;
+    color: #f1f5f9 !important;
+    border-radius: 12px;
+    overflow-x: auto;
+}
+
+.dataframe th, .stDataFrame th {
+    background: #334155 !important;
+    color: #f1f5f9 !important;
+    font-weight: 600;
+}
+
+.dataframe td, .stDataFrame td {
+    color: #e2e8f0 !important;
+    border-bottom: 1px solid #334155;
+}
+
+.streamlit-expanderHeader {
+    background: #1e293b !important;
+    color: #38bdf8 !important;
+    border-radius: 12px;
+}
+
+.streamlit-expanderContent {
+    background: #0f172a !important;
+    color: #f1f5f9 !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.5rem;
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 0.5rem;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: #334155 !important;
+    border-radius: 30px !important;
+    padding: 0.5rem 1rem !important;
+    color: #f1f5f9 !important;
+    font-weight: 500;
+}
+
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4) !important;
+    color: white !important;
+}
+
+.chat-message {
+    display: flex;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.chat-message.user {
+    justify-content: flex-end;
+}
+
+.chat-message.assistant {
+    justify-content: flex-start;
+}
+
+.chat-bubble {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 24px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+
+.user .chat-bubble {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.assistant .chat-bubble {
+    background: #1e293b;
+    border: 1px solid #475569;
+    color: #f1f5f9;
+    border-bottom-left-radius: 4px;
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.user .avatar {
+    background: #8b5cf6;
+    color: white;
+    order: 1;
+}
+
+.assistant .avatar {
+    background: #06b6d4;
+    color: white;
+}
+
+.stAlert {
+    background: #1e293b !important;
+    border-left: 4px solid #38bdf8 !important;
+    color: #f1f5f9 !important;
+}
+
+.stAlert p {
+    color: #f1f5f9 !important;
+}
+
+[data-baseweb="popover"] {
+    background: #1e293b !important;
+    border: 1px solid #475569;
+}
+
+[data-baseweb="menu"] div {
+    color: #f1f5f9 !important;
+    background: #1e293b !important;
+}
+
+[data-baseweb="menu"] div:hover {
+    background: #334155 !important;
+}
+
+@media (max-width: 768px) {
+    .stColumns {
+        flex-direction: column !important;
+    }
+    .stColumns > div {
+        width: 100% !important;
+        margin-bottom: 1rem;
+    }
+    [data-testid="stMetric"] {
+        padding: 0.8rem !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.4rem !important;
+    }
+    h1, h2, h3 {
+        font-size: 1.2rem !important;
+    }
+    .nx-title {
+        font-size: 1.1rem !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        flex-wrap: wrap !important;
+        gap: 0.25rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.3rem 0.6rem !important;
+        font-size: 0.7rem !important;
+    }
+    .stDataFrame {
+        overflow-x: auto !important;
+    }
+    .stButton > button {
+        width: 100%;
+        padding: 0.5rem;
+    }
+    .chat-bubble {
+        max-width: 90% !important;
+        font-size: 0.85rem !important;
+    }
+    .avatar {
+        width: 28px !important;
+        height: 28px !important;
+        font-size: 0.8rem !important;
+    }
+}
+
+.nx-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 1rem 0 1.2rem;
+    flex-wrap: wrap;
+}
+
+.nx-tag {
+    background: linear-gradient(95deg, #8b5cf6, #06b6d4);
+    color: white;
+    border-radius: 60px;
+    padding: 0.2rem 0.8rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.nx-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #38bdf8, #8b5cf6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.insight-box {
+    background: #1e293b;
+    border-left: 5px solid #8b5cf6;
+    border-radius: 20px;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    color: #f1f5f9;
+}
+
+.admin-kpi-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    padding: 1.5rem;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.js-plotly-plot, .plotly, .plotly .main-svg {
+    background: #1e293b !important;
+}
+
+code {
+    background: #334155 !important;
+    color: #facc15 !important;
+    padding: 0.2rem 0.4rem;
+    border-radius: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -479,7 +788,7 @@ def sec_header(tag, title, sub=""):
     <div class="nx-header">
         <span class="nx-tag">{tag}</span>
         <span class="nx-title">{title}</span>
-        <span style="margin-left:auto; font-size:0.7rem; color:#64748b;">{sub}</span>
+        <span style="margin-left:auto; font-size:0.7rem; color:#94a3b8;">{sub}</span>
     </div>""", unsafe_allow_html=True)
 
 def fmt_num(n, prefix="", suffix="", decimals=1):
@@ -497,7 +806,7 @@ def fmt_num(n, prefix="", suffix="", decimals=1):
     except Exception:
         return "N/A"
 
-# ========================== AI API FUNCTIONS (DEEPSEEK + GROQ + CUSTOM) ==========================
+# ========================== AI API FUNCTIONS ==========================
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -571,18 +880,15 @@ def call_custom_ai_api(messages, api_url, api_key, model, max_tokens=2000, tempe
         return None, f"Custom AI Exception: {str(e)}"
 
 def get_ai_response(messages, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, max_tokens=2000, temperature=0.7):
-    """Try provider first, fallback to others if available."""
     if provider == "deepseek":
         response, error = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
         if response:
             return response, None
-        # Fallback to groq if available
         if groq_key:
             response2, error2 = call_groq_api(messages, groq_key, max_tokens, temperature)
             if response2:
                 return response2, None
             return None, f"DeepSeek failed: {error}. Groq failed: {error2}"
-        # Fallback to custom if enabled
         if custom_url and custom_key:
             response3, error3 = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
             if response3:
@@ -666,7 +972,28 @@ First 5 rows of data:
     return context
 
 def get_chatbot_response(user_message, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, chat_history, df=None):
-    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. ..."""  # (same as original)
+    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. Your capabilities include:
+
+1. **Data Analysis**: Answer questions about the user's loaded dataset. Provide insights, summaries, statistical analysis, and recommendations based on the data provided.
+2. **Financial Intelligence**: Analyze financial metrics like revenue, profit, margins, and trends. Offer business insights and recommendations.
+3. **Platform Guidance**: Help users navigate the NEXUS Analytics Pro features including:
+   - RFM Analysis for customer segmentation
+   - Demand Forecasting (requires Pro/Enterprise plan)
+   - Profit Optimizer ML models
+   - Market Basket Analysis (requires Pro/Enterprise plan)
+   - Clustering and Segmentation (requires Pro/Enterprise plan)
+   - Anomaly Detection
+   - Executive Report Generation
+4. **Troubleshooting**: Help users fix common issues like data loading/encoding problems, column mapping errors, plan limitations, model training errors.
+
+Response Guidelines:
+- Be concise but informative
+- Use bullet points for clarity when appropriate
+- For data questions, refer to the provided dataset context
+- If you don't know something, admit it and suggest alternatives
+- Be helpful and professional in tone
+
+The current dataset information (if any) is provided in the user message context."""
     
     messages = [{"role": "system", "content": system_prompt}]
     for msg in chat_history[-20:]:
@@ -840,9 +1167,7 @@ def build_forecast(date_series_json, value_series_json, horizon=90, freq='ME'):
     value_series = pd.Series(pd.read_json(io.StringIO(value_series_json), typ='series'))
 
     df = pd.DataFrame({"ds": pd.to_datetime(date_series), "y": value_series.values})
-    # Convert freq: 'ME' -> 'M' for Prophet, else 'W'
     period_key = 'M' if freq == 'ME' else 'W'
-    # Group by period and convert to timestamp
     df['period'] = df['ds'].dt.to_period(period_key)
     ts = df.groupby('period')['y'].sum().reset_index()
     ts['ds'] = ts['period'].dt.to_timestamp()
@@ -852,7 +1177,6 @@ def build_forecast(date_series_json, value_series_json, horizon=90, freq='ME'):
         try:
             model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq == 'W'), daily_seasonality=False)
             model.fit(ts)
-            # Prophet uses 'M' for monthly
             prophet_freq = 'M' if freq == 'ME' else 'W'
             future = model.make_future_dataframe(periods=horizon, freq=prophet_freq)
             forecast = model.predict(future)
@@ -1049,15 +1373,11 @@ def chatbot_tab():
     custom_model = get_setting("custom_ai_model")
     custom_enabled = get_setting("custom_ai_enabled") == "1"
 
-    if custom_enabled and provider == "custom":
-        # Override provider to custom if enabled
-        pass
-
     st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
         <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #8b5cf6, #06b6d4); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 28px;">🚀</div>
-        <h1 style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 1.8rem;">NEXUS AI Assistant</h1>
-        <p style="color: #64748b;">Powered by DeepSeek, Groq, or your custom AI — Ask me anything</p>
+        <h1 style="color: #38bdf8; font-size: 1.8rem;">NEXUS AI Assistant</h1>
+        <p style="color: #94a3b8;">Powered by DeepSeek, Groq, or your custom AI — Ask me anything</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1102,7 +1422,6 @@ def chatbot_tab():
         
         current_df = st.session_state.get("df", None)
         
-        # Check if any API key is configured
         has_key = (provider == "deepseek" and deepseek_key) or \
                   (provider == "groq" and groq_key) or \
                   (provider == "custom" and custom_enabled and custom_key)
@@ -1131,7 +1450,6 @@ def chatbot_tab():
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
-    # Ensure only admin can see this (already checked in main, but double-check)
     if not st.session_state.get("is_admin", False):
         st.error("Access denied. Admins only.")
         return
@@ -1139,7 +1457,7 @@ def mega_admin_dashboard():
     st.markdown("""
     <div style="background: linear-gradient(135deg, #1e293b 0%, #4f46e5 50%, #06b6d4 100%);
          border-radius: 24px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;">
-        <h1 style="color: white; font-size: 1.6rem; font-weight: 800; background: none; margin-bottom: 0.5rem;">
+        <h1 style="color: white; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.5rem;">
             🛡️ NEXUS Admin Control Center
         </h1>
         <p style="color: rgba(255,255,255,0.8); font-size: 0.9rem;">Full system visibility · User management · Activity monitoring</p>
@@ -1168,7 +1486,7 @@ def mega_admin_dashboard():
         "📊 Overview", "👤 Users", "📋 Logs", "📋 Subs", "💰 Plans", "⚙️ Settings", "📈 Analytics"
     ])
 
-    # ---------- Overview (unchanged) ----------
+    # Overview tab
     with admin_tabs[0]:
         sec_header("OVERVIEW", "Platform Health", "Real-time insights")
         logs = get_login_logs(limit=500)
@@ -1182,19 +1500,19 @@ def mega_admin_dashboard():
                 login_counts["status"] = login_counts["success"].map({1: "✅ Success", 0: "❌ Failed"})
                 fig = px.area(login_counts, x="date", y="count", color="status", title="Login Activity",
                               color_discrete_map={"✅ Success": "#10b981", "❌ Failed": "#ef4444"})
-                fig.update_layout(height=350, template="plotly_white")
+                fig.update_layout(height=350, template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 success_rate = df_logs["success"].sum() / len(df_logs) * 100 if len(df_logs) > 0 else 0
                 fig3 = go.Figure(go.Indicator(mode="gauge+number", value=round(success_rate, 1),
                                               title={"text": "Login Success Rate (%)"},
                                               gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#8b5cf6"}}))
-                fig3.update_layout(height=300)
+                fig3.update_layout(height=300, template="plotly_dark")
                 st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No login data yet.")
 
-    # ---------- User Management (unchanged) ----------
+    # Users tab
     with admin_tabs[1]:
         sec_header("USERS", "User Management", "Create · Edit · Delete · Promote")
         users = get_all_users()
@@ -1255,7 +1573,7 @@ def mega_admin_dashboard():
                 else:
                     st.error("Fill all fields.")
 
-    # ---------- Activity Logs (unchanged) ----------
+    # Logs tab
     with admin_tabs[2]:
         sec_header("LOGS", "Activity Logs", "Audit trail")
         col1, col2 = st.columns(2)
@@ -1271,7 +1589,7 @@ def mega_admin_dashboard():
                 df_sys = pd.DataFrame(sys_logs, columns=["User", "Action", "Details", "Timestamp"])
                 st.dataframe(df_sys, use_container_width=True, height=400)
 
-    # ---------- Subscription Management (unchanged) ----------
+    # Subscriptions tab
     with admin_tabs[3]:
         sec_header("SUBSCRIPTIONS", "Manage User Plans", "Upgrade, downgrade, extend")
         subs = get_all_subscriptions()
@@ -1312,7 +1630,7 @@ def mega_admin_dashboard():
         for plan, cnt in plan_counts.items():
             st.write(f"- {plan}: {cnt} users")
 
-    # ---------- Plan Management (unchanged) ----------
+    # Plans tab
     with admin_tabs[4]:
         sec_header("PLANS", "Edit Subscription Plans", "Prices, limits, features")
         all_plans = get_all_plans()
@@ -1327,7 +1645,7 @@ def mega_admin_dashboard():
                     st.success(f"{plan['name']} updated.")
                     st.rerun()
 
-    # ---------- System Settings (AI Keys + Custom AI) ----------
+    # Settings tab (AI keys, upload limit, cache)
     with admin_tabs[5]:
         sec_header("SETTINGS", "System Configuration", "API Keys & Limits (Admin only)")
         
@@ -1335,21 +1653,17 @@ def mega_admin_dashboard():
         current_provider = get_setting("ai_provider", "deepseek")
         custom_enabled = get_setting("custom_ai_enabled") == "1"
         
-        # Show provider options
         provider_options = ["deepseek", "groq"]
         if custom_enabled:
             provider_options.append("custom")
         provider_choice = st.selectbox("Primary AI Provider", provider_options, index=provider_options.index(current_provider) if current_provider in provider_options else 0)
         
-        # DeepSeek settings
         current_deepseek = get_setting("deepseek_api_key")
         new_deepseek = st.text_input("DeepSeek API Key", type="password", value=current_deepseek, key="ds_key")
         
-        # Groq settings
         current_groq = get_setting("groq_api_key")
         new_groq = st.text_input("Groq API Key (free tier)", type="password", value=current_groq, key="groq_key")
         
-        # Custom AI (OpenAI-compatible) settings
         st.markdown("---")
         st.markdown("#### 🔌 Custom AI (OpenAI-compatible)")
         enable_custom = st.checkbox("Enable Custom AI", value=custom_enabled)
@@ -1391,7 +1705,7 @@ def mega_admin_dashboard():
         db_size = os.path.getsize(DB_PATH) / (1024 * 1024) if os.path.exists(DB_PATH) else 0
         st.metric("Database Size", f"{db_size:.3f} MB")
 
-    # ---------- Platform Analytics (unchanged) ----------
+    # Analytics tab
     with admin_tabs[6]:
         sec_header("ANALYTICS", "Platform Usage", "User behavior insights")
         sys_logs = get_system_logs(limit=500)
@@ -1435,11 +1749,11 @@ def subscription_plans_tab():
     for idx, plan in enumerate(plans):
         with cols[idx]:
             st.markdown(f"""
-            <div style="background: white; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; margin-bottom: 1rem;">
-                <h3 style="margin-bottom: 0.5rem;">{plan['name']}</h3>
+            <div style="background: #1e293b; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; margin-bottom: 1rem; border: 1px solid #334155;">
+                <h3 style="margin-bottom: 0.5rem; color: #38bdf8;">{plan['name']}</h3>
                 <p style="font-size: 1.5rem; font-weight: 800; color: #8b5cf6;">${plan['price_monthly']:.2f}<span style="font-size: 0.9rem;">/month</span></p>
                 <p style="font-size: 0.8rem;">or ${plan['price_yearly']:.2f}/year</p>
-                <hr>
+                <hr style="border-color: #334155;">
                 <p>📊 Max rows: {plan['max_rows']:,}</p>
                 <p>✨ {plan['features'][:80]}...</p>
             </div>
@@ -1519,7 +1833,6 @@ def render_analytics_app():
                         else:
                             df_new = pd.read_excel(uploaded)
                         progress_bar.progress(100)
-                        # Enforce row limit based on plan or guest
                         max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
                         if len(df_new) > max_allowed:
                             st.error(f"Dataset has {len(df_new):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use smaller file.")
@@ -1589,7 +1902,7 @@ def render_analytics_app():
         "👥 Segments", "🛒 Basket", "📈 Advanced", "📄 Report", "💎 Plans", "💬 AI"
     ])
 
-    # ---------- Data Hub ----------
+    # Data Hub
     with tabs[0]:
         sec_header("00", "Data Hub", "Overview")
         col1, col2, col3, col4 = st.columns(4)
@@ -1605,7 +1918,7 @@ def render_analytics_app():
             with st.expander("Stats"):
                 st.dataframe(df.describe(include="all").T, use_container_width=True)
 
-    # ---------- KPIs (unchanged) ----------
+    # KPIs
     with tabs[1]:
         sec_header("01", "Key Performance Indicators", "Revenue & Profit")
         sales_col = st.session_state["col_map"].get("sales", "—")
@@ -1638,7 +1951,7 @@ def render_analytics_app():
         else:
             st.info("Map a Sales column in sidebar.")
 
-    # ---------- Forecasting (unchanged) ----------
+    # Forecasting
     with tabs[2]:
         sec_header("02", "Demand Forecasting", "AI-powered prediction")
         if not is_pro_or_enterprise:
@@ -1667,7 +1980,7 @@ def render_analytics_app():
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Upper"], fill=None, line=dict(color="rgba(0,0,0,0)"), showlegend=False))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence", fillcolor="rgba(139,92,246,0.15)", line=dict(color="rgba(0,0,0,0)")))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f59e0b", dash="dash")))
-                                fig.update_layout(height=500, template="plotly_white")
+                                fig.update_layout(height=500, template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                                 st.dataframe(fcast.round(2), use_container_width=True)
                         except Exception as e:
@@ -1675,7 +1988,7 @@ def render_analytics_app():
             else:
                 st.info("Map Sales and Date columns.")
 
-    # ---------- Profit Optimizer (unchanged) ----------
+    # Profit Optimizer
     with tabs[3]:
         sec_header("03", "AI Profit Optimizer", "Voting Ensemble")
         profit_col = st.session_state["col_map"].get("profit", "—")
@@ -1709,7 +2022,7 @@ def render_analytics_app():
         else:
             st.info("Map a Profit column.")
 
-    # ---------- Segmentation (unchanged) ----------
+    # Segmentation
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM & Clustering")
         cust_col = st.session_state["col_map"].get("customer", "—")
@@ -1771,7 +2084,7 @@ def render_analytics_app():
                 else:
                     st.info("Need at least 2 numeric columns.")
 
-    # ---------- Market Basket (unchanged) ----------
+    # Market Basket
     with tabs[5]:
         sec_header("05", "Market Basket", "Apriori rules")
         if not is_pro_or_enterprise:
@@ -1804,7 +2117,7 @@ def render_analytics_app():
             else:
                 st.info("Map Customer ID and Product columns.")
 
-    # ---------- Advanced Analytics (unchanged) ----------
+    # Advanced Analytics
     with tabs[6]:
         sec_header("06", "Advanced Analytics", "Correlations, Anomalies")
         adv_tab1, adv_tab2, adv_tab3 = st.tabs(["Correlations", "Anomaly Detection", "Data Explorer"])
@@ -1813,11 +2126,11 @@ def render_analytics_app():
             if len(num_cols) >= 2:
                 corr = df[num_cols].corr()
                 fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", title="Correlation Matrix", aspect="auto")
-                fig.update_layout(height=500)
+                fig.update_layout(height=500, template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
                 top4 = num_cols[:min(4, len(num_cols))]
                 fig2 = px.scatter_matrix(df[top4].dropna().sample(min(500, len(df))), title="Scatter Matrix")
-                fig2.update_layout(height=600)
+                fig2.update_layout(height=600, template="plotly_dark")
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("Need 2+ numeric columns.")
@@ -1860,7 +2173,7 @@ def render_analytics_app():
                 st.info("Map a Date column for filtering.")
                 st.dataframe(df.sample(min(200, len(df))), use_container_width=True)
 
-    # ---------- Executive Report (unchanged) ----------
+    # Executive Report
     with tabs[7]:
         sec_header("07", "Executive Report", "AI-generated summary")
         if st.button("Generate Report"):
@@ -1911,11 +2224,11 @@ Report generated by NEXUS Analytics Pro
             st.markdown(report)
             st.download_button("Download Report", report, "nexus_report.md", "text/markdown")
 
-    # ---------- Subscription Plans ----------
+    # Subscription Plans
     with tabs[8]:
         subscription_plans_tab()
 
-    # ---------- AI Assistant ----------
+    # AI Assistant
     with tabs[9]:
         chatbot_tab()
 
