@@ -533,7 +533,7 @@ html, body, [data-testid="stAppViewContainer"], .main {
     border-right: 1px solid rgba(124, 58, 237, 0.3) !important;
     box-shadow: 4px 0 30px rgba(0,0,0,0.5) !important;
 }
-[data-testid="stSidebar"] * {
+[data-testid="stSidebar"]  {
     color: var(--text-primary) !important;
     font-family: 'Space Grotesk', sans-serif !important;
 }
