@@ -50,9 +50,9 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 # ========================== CONFIGURATION ==========================
-MAX_FILE_SIZE_MB = 1000
+MAX_FILE_SIZE_MB = 5000
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-GUEST_MAX_ROWS = 1000
+GUEST_MAX_ROWS = 5000
 
 CONFIG_DIR = Path(".streamlit")
 CONFIG_FILE = CONFIG_DIR / "config.toml"
@@ -147,7 +147,7 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM subscription_plans")
     if c.fetchone()[0] == 0:
         plans = [
-            ("Free", 0, 0, 1000, "Basic analytics, limited rows, no export, no forecasting, no market basket, no clustering", 1),
+            ("Free", 0, 0, 5000, "Basic analytics, limited rows, no export, no forecasting, no market basket, no clustering", 1),
             ("Pro", 19.99, 199.99, 50000, "Full analytics, forecasting, market basket, clustering, export, priority support", 1),
             ("Enterprise", 49.99, 499.99, 999999999, "Unlimited rows, all Pro features + custom models, dedicated support, API access", 1)
         ]
@@ -841,7 +841,7 @@ def call_groq_api(messages, api_key, max_tokens=2000, temperature=0.7):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.3-70b-versatile",
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
