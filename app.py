@@ -72,6 +72,19 @@ def read_csv_with_encoding(uploaded_file):
         try:
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, encoding=enc)
+            
+            # --- الإضافة الجديدة لحل مشكلة التاريخ ---
+            # البحث عن أي عمود نصي ومحاولة تحويله إلى صيغة تاريخ
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    try:
+                        # إذا نجح التحويل، سيصبح العمود من نوع datetime
+                        df[col] = pd.to_datetime(df[col])
+                    except (ValueError, TypeError):
+                        # إذا فشل (يعني أنه نص عادي وليس تاريخ)، يتم تجاهله
+                        pass
+            # ----------------------------------------
+            
             return df, enc
         except (UnicodeDecodeError, Exception):
             continue
@@ -474,6 +487,30 @@ html, body, [data-testid="stAppViewContainer"] {
     background-color: #0f172a !important;
     color: #f1f5f9 !important;
 }
+/* File Uploader (صندوق رفع الملفات) */
+[data-testid="stFileUploadDropzone"] {
+    background-color: #1e293b !important;
+    border: 2px dashed #475569 !important;
+}
+[data-testid="stFileUploadDropzone"] * {
+    color: #f1f5f9 !important;
+}
+
+/* Chat Input (صندوق إدخال الرسائل) */
+[data-testid="stChatInput"] {
+    background-color: #0f172a !important; /* لون خلفية الصندوق من الخارج */
+}
+[data-testid="stChatInput"] textarea {
+    background-color: #334155 !important; /* لون خلفية مكان الكتابة */
+    color: white !important;
+}
+
+/* جعل الرسائل تتمدد لتحتوي النص بالكامل */
+.stChatMessage, .chat-bubble {
+    height: auto !important;
+    word-wrap: break-word !important;
+    white-space: pre-wrap !important;
+}
 
 [data-testid="stSidebar"] {
     background-color: #0f172a !important;
@@ -506,6 +543,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 
 /* Input fields */
+
 .stTextInput > div > div > input,
 .stSelectbox > div > div,
 .stTextArea textarea,
