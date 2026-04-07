@@ -14,6 +14,8 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import requests
+import json
 
 from sklearn.ensemble import (
     RandomForestRegressor, GradientBoostingRegressor,
@@ -546,6 +548,14 @@ input, [data-testid="stTextInput"] input, [data-testid="stTextInput"] div[data-b
     border-color: #8b5cf6 !important;
     box-shadow: 0 0 0 2px rgba(139,92,246,0.2);
 }
+/* Chat message styling */
+[data-testid="stChatMessage"] {
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(4px);
+    border-radius: 20px;
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -572,6 +582,150 @@ def fmt_num(n, prefix="", suffix="", decimals=1):
         return f"{prefix}{n:.{decimals}f}{suffix}"
     except Exception:
         return "N/A"
+
+# ========================== DEEPSEEK CHATBOT FUNCTIONS ==========================
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+
+def get_data_context(df):
+    """Generate a summary of the current DataFrame for context."""
+    if df is None or len(df) == 0:
+        return "No data currently loaded."
+    
+    # Get basic info
+    num_rows = len(df)
+    num_cols = len(df.columns)
+    columns_list = list(df.columns)
+    
+    # Get sample of numeric columns for statistical context
+    numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+    numeric_stats = {}
+    for col in numeric_cols[:10]:  # Limit to first 10 numeric columns
+        try:
+            numeric_stats[col] = {
+                "min": float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                "max": float(df[col].max()) if not pd.isna(df[col].max()) else None,
+                "mean": float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
+                "sum": float(df[col].sum()) if not pd.isna(df[col].sum()) else None
+            }
+        except:
+            pass
+    
+    # Get sample of categorical columns
+    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    categorical_samples = {}
+    for col in categorical_cols[:5]:
+        try:
+            unique_vals = df[col].dropna().unique()[:5].tolist()
+            categorical_samples[col] = unique_vals
+        except:
+            pass
+    
+    # Build context string
+    context = f"""
+Dataset Overview:
+- Total rows: {num_rows:,}
+- Total columns: {num_cols}
+- Column names: {columns_list}
+
+Numeric Columns Summary (first {len(numeric_stats)}):
+{json.dumps(numeric_stats, indent=2, default=str)}
+
+Categorical Columns Samples:
+{json.dumps(categorical_samples, indent=2, default=str)}
+
+First 5 rows of data:
+{df.head(5).to_string()}
+"""
+    return context
+
+def call_deepseek_api(messages, api_key, max_tokens=2000, temperature=0.7):
+    """Call DeepSeek API with given messages."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "deepseek-chat",
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": False
+    }
+    
+    try:
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"], None
+        else:
+            error_msg = f"API Error: {response.status_code} - {response.text[:200]}"
+            return None, error_msg
+    except requests.exceptions.Timeout:
+        return None, "Request timed out. Please try again."
+    except requests.exceptions.ConnectionError:
+        return None, "Connection error. Please check your internet connection."
+    except Exception as e:
+        return None, f"Unexpected error: {str(e)}"
+
+def get_chatbot_response(user_message, api_key, chat_history, df=None):
+    """Get response from DeepSeek API with data context."""
+    
+    # System prompt defining the chatbot's role
+    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. Your capabilities include:
+
+1. **Data Analysis**: Answer questions about the user's loaded dataset. Provide insights, summaries, statistical analysis, and recommendations based on the data provided.
+2. **Financial Intelligence**: Analyze financial metrics like revenue, profit, margins, and trends. Offer business insights and recommendations.
+3. **Platform Guidance**: Help users navigate the NEXUS Analytics Pro features including:
+   - RFM Analysis for customer segmentation
+   - Demand Forecasting (requires Pro/Enterprise plan)
+   - Profit Optimizer ML models
+   - Market Basket Analysis (requires Pro/Enterprise plan)
+   - Clustering and Segmentation (requires Pro/Enterprise plan)
+   - Anomaly Detection
+   - Executive Report Generation
+4. **Troubleshooting**: Help users fix common issues like:
+   - Data loading/encoding problems
+   - Column mapping errors
+   - Plan limitations (Free vs Pro vs Enterprise)
+   - Model training errors
+
+Response Guidelines:
+- Be concise but informative
+- Use bullet points for clarity when appropriate
+- For data questions, refer to the provided dataset context
+- If you don't know something, admit it and suggest alternatives
+- Be helpful and professional in tone
+
+The current dataset information (if any) is provided in the user message context."""
+    
+    # Build messages array
+    messages = [
+        {"role": "system", "content": system_prompt},
+    ]
+    
+    # Add chat history (last 10 messages to stay within token limits)
+    for msg in chat_history[-20:]:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    # Add current user message with data context if available
+    if df is not None and len(df) > 0:
+        data_context = get_data_context(df)
+        user_content = f"""
+Current Dataset Context:
+{data_context}
+
+User Question: {user_message}
+
+Please answer based on the dataset context provided. If the question is not related to the data, ignore the data context.
+"""
+    else:
+        user_content = user_message
+    
+    messages.append({"role": "user", "content": user_content})
+    
+    # Call API
+    response, error = call_deepseek_api(messages, api_key)
+    return response, error
 
 # ========================== DATA FUNCTIONS ==========================
 @st.cache_data(show_spinner=False)
@@ -890,6 +1044,102 @@ def login_section():
                     st.error("⚠️ Email already exists.")
         st.sidebar.info("💡 Guest mode: limited features.")
         return False
+
+# ========================== CHATBOT TAB ==========================
+def chatbot_tab():
+    sec_header("AI", "NEXUS AI Assistant", "Powered by DeepSeek")
+    
+    # Initialize session state for chat
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+        # Add welcome message
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": """Hello! I'm NEXUS AI, your intelligent assistant. I can help you with:
+
+📊 **Data Analysis**: Ask me anything about your loaded dataset
+💰 **Financial Insights**: Get revenue, profit, and trend analysis
+🔧 **Platform Help**: Learn how to use NEXUS Analytics Pro features
+🐛 **Troubleshooting**: Fix common issues and errors
+
+To get started, enter your DeepSeek API key below, then ask me a question about your data or the platform!"""
+        })
+    
+    if "deepseek_api_key" not in st.session_state:
+        st.session_state.deepseek_api_key = ""
+    
+    # API Key input
+    with st.expander("🔑 DeepSeek API Key Settings", expanded=not st.session_state.deepseek_api_key):
+        st.markdown("""
+        To use the AI assistant, you need a DeepSeek API key.
+        1. Go to [DeepSeek Platform](https://platform.deepseek.com/)
+        2. Sign up for a free account
+        3. Navigate to API Keys section
+        4. Create a new key and copy it here
+        """)
+        api_key_input = st.text_input("DeepSeek API Key", type="password", value=st.session_state.deepseek_api_key, key="deepseek_api_input")
+        if st.button("Save API Key"):
+            if api_key_input.startswith("sk-"):
+                st.session_state.deepseek_api_key = api_key_input
+                st.success("API Key saved successfully!")
+                st.rerun()
+            elif api_key_input:
+                st.warning("Please enter a valid DeepSeek API key (should start with 'sk-')")
+            else:
+                st.session_state.deepseek_api_key = ""
+                st.info("API Key cleared.")
+    
+    # Clear chat button
+    col1, col2 = st.columns([6, 1])
+    with col2:
+        if st.button("🗑️ Clear Chat", key="clear_chat"):
+            st.session_state.chat_messages = []
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": "Chat cleared! How can I help you today?"
+            })
+            st.rerun()
+    
+    # Get current dataframe for context
+    current_df = st.session_state.get("df", None)
+    
+    # Display chat messages
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    
+    # Chat input
+    if prompt := st.chat_input("Ask me about your data or the platform..."):
+        # Add user message to chat
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # Check if API key is set
+        if not st.session_state.deepseek_api_key:
+            with st.chat_message("assistant"):
+                error_msg = "⚠️ Please set your DeepSeek API key in the settings above before asking questions."
+                st.markdown(error_msg)
+                st.session_state.chat_messages.append({"role": "assistant", "content": error_msg})
+        else:
+            # Get response from DeepSeek
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    response, error = get_chatbot_response(
+                        prompt,
+                        st.session_state.deepseek_api_key,
+                        st.session_state.chat_messages[:-1],  # Exclude the current user message
+                        current_df
+                    )
+                    if error:
+                        st.error(f"Error: {error}")
+                        st.session_state.chat_messages.append({"role": "assistant", "content": f"Sorry, an error occurred: {error}"})
+                    else:
+                        st.markdown(response)
+                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
+        
+        # Rerun to update chat display
+        st.rerun()
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
@@ -1527,7 +1777,7 @@ def render_analytics_app():
 
     tabs = st.tabs([
         "📊 Data Hub", "💰 KPIs", "🔮 Forecasting", "🤖 Profit Optimizer",
-        "👥 Segmentation", "🛒 Market Basket", "📈 Advanced Analytics", "📄 Executive Report", "💎 Subscription Plans"
+        "👥 Segmentation", "🛒 Market Basket", "📈 Advanced Analytics", "📄 Executive Report", "💎 Subscription Plans", "💬 AI Assistant"
     ])
 
     # ---------- TAB 0: DATA HUB ----------
@@ -2018,6 +2268,10 @@ def render_analytics_app():
     # ---------- TAB 8: SUBSCRIPTION PLANS ----------
     with tabs[8]:
         subscription_plans_tab()
+    
+    # ---------- TAB 9: AI CHATBOT ----------
+    with tabs[9]:
+        chatbot_tab()
 
 # ========================== MAIN ==========================
 def main():
