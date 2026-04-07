@@ -703,21 +703,29 @@ html, body, [data-testid="stAppViewContainer"], .main {
     border-color: var(--accent-purple) !important;
     box-shadow: 0 0 0 2px var(--glow-purple) !important;
 }
-
 [data-testid="stFileUploadDropzone"] {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.05), rgba(6, 182, 212, 0.05)) !important;
-    border: 2px dashed rgba(124, 58, 237, 0.4) !important;
+    /* ده لون الخلفية العادي (كحلي غامق) .. تقدر تغيره لأي لون */
+    background: rgba(30, 41, 59, 0.8) !important; 
+    
+    /* ده لون خط الإطار المتقطع (هنا سماوي) */
+    border: 2px dashed #06b6d4 !important; 
+    
     border-radius: var(--radius-md) !important;
     transition: all 0.3s ease !important;
 }
+
 [data-testid="stFileUploadDropzone"]:hover {
-    border-color: var(--accent-cyan) !important;
-    background: rgba(6, 182, 212, 0.08) !important;
-}
-[data-testid="stFileUploadDropzone"] * {
-    color: var(--text-primary) !important;
+    /* ده لون الإطار لما الماوس ييجي عليه (هنا بنفسجي) */
+    border-color: #7c3aed !important; 
+    
+    /* ده لون الخلفية لما الماوس ييجي عليه */
+    background: rgba(124, 58, 237, 0.1) !important; 
 }
 
+[data-testid="stFileUploadDropzone"] * {
+    /* ده لون الكلام والأيقونة اللي جوه المربع (أبيض/رمادي فاتح) */
+    color: #f1f5f9 !important; 
+}
 [data-testid="stDataFrame"] {
     border: 1px solid var(--border-bright) !important;
     border-radius: var(--radius-md) !important;
@@ -972,6 +980,18 @@ hr { border-color: var(--border-bright) !important; opacity: 0.4 !important; }
     border: 1px solid rgba(249, 115, 22, 0.3);
     padding: 3px 8px;
     border-radius: 999px;
+}
+/* ===== لون بوكسات إدراج العواميد في السايد بار ===== */
+[data-testid="stSidebar"] .stSelectbox > div > div {
+    background-color: #0f172a !important; 
+    border: 1px solid #334155 !important; 
+    color: #ffffff !important; 
+    border-radius: var(--radius-sm) !important;
+}
+
+[data-testid="stSidebar"] .stSelectbox > div > div:focus-within {
+    border-color: #06b6d4 !important; 
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.4) !important; 
 }
 </style>
 """, unsafe_allow_html=True)
