@@ -532,7 +532,7 @@ def call_groq_api(messages, api_key, max_tokens=2000, temperature=0.7):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.3-70b-versatile",
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
