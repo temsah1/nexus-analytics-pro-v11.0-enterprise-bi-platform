@@ -1460,45 +1460,71 @@ def market_basket_analysis(df, customer_col, product_col, min_support=0.01):
     rules = association_rules(frequent, metric="lift", min_threshold=1.0)
     return frequent, rules, "Success"
 
-# ========================== LOGIN ==========================
-def login_section():
-    st.sidebar.markdown("### 🔐 Account")
-    if st.session_state.get("logged_in", False):
-        role_label = "👑 Admin" if st.session_state.get("is_admin") else "👤 User"
-        st.sidebar.success(f"{role_label}: {st.session_state['user_email']}")
-        if st.sidebar.button("Logout", key="logout_btn"):
-            for k in ["logged_in", "user_email", "is_admin"]:
-                st.session_state[k] = False if k != "user_email" else None
-            st.rerun()
-        return True
-    else:
-        with st.sidebar.expander("🔑 Login", expanded=False):
-            email = st.text_input("Email", key="login_email")
-            pwd = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login", key="login_submit"):
-                success, is_admin = verify_password(email, pwd)
-                log_login_attempt(email, success)
-                if success:
-                    st.session_state.update({"logged_in": True, "user_email": email, "is_admin": is_admin})
-                    log_system_action(email, "login")
-                    st.rerun()
-                else:
-                    st.error("❌ Invalid credentials")
-        with st.sidebar.expander("📝 Register", expanded=False):
-            new_email = st.text_input("Email", key="reg_email")
-            new_pwd = st.text_input("Password", type="password", key="reg_password")
-            if st.button("Register", key="reg_submit"):
-                if not new_email or not new_pwd:
-                    st.error("Please fill all fields.")
-                elif register_user(new_email, new_pwd):
-                    st.success("✅ Account created! Please login.")
-                    log_system_action(new_email, "register")
-                else:
-                    st.error("⚠️ Email already exists.")
-        st.sidebar.info("💡 Guest mode: limited to 1000 rows.")
-        return False
+# ========================== RIGHT LOGIN PANEL (FIXED) ==========================
+def right_login_panel():
+    """
+    عرض نموذج تسجيل الدخول في العمود الأيمن مع تحسين النصوص العربية
+    """
+    st.markdown("""
+    <div style="background: linear-gradient(145deg, #111827, #0d1626);
+                border: 1px solid rgba(124, 58, 237, 0.4);
+                border-radius: 24px;
+                padding: 2rem 1.5rem;
+                text-align: center;
+                box-shadow: 0 20px 35px -10px rgba(0,0,0,0.5);
+                backdrop-filter: blur(4px);">
+        <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #7c3aed, #06b6d4);
+                    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                    margin: 0 auto 1rem; font-size: 32px; box-shadow: 0 0 20px rgba(124,58,237,0.5);">
+            🚀
+        </div>
+        <h2 style="font-family: 'Orbitron', sans-serif; font-size: 1.8rem; font-weight: 800;
+                   background: linear-gradient(135deg, #f1f5f9, #7c3aed);
+                   -webkit-background-clip: text; background-clip: text; color: transparent;">
+            NEXUS
+        </h2>
+        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem;">
+            منصة التحليلات الاحترافية
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ========================== FIX #2 + #3: ENHANCED CHATBOT ==========================
+    with st.expander("🔐 تسجيل الدخول إلى حسابك", expanded=True):
+        email = st.text_input("📧 البريد الإلكتروني", key="login_email_right", placeholder="example@domain.com")
+        pwd = st.text_input("🔒 كلمة المرور", type="password", key="login_password_right", placeholder="••••••••")
+        if st.button("🚀 دخول", key="login_submit_right", use_container_width=True):
+            success, is_admin = verify_password(email, pwd)
+            log_login_attempt(email, success)
+            if success:
+                st.session_state.update({"logged_in": True, "user_email": email, "is_admin": is_admin})
+                log_system_action(email, "login")
+                st.rerun()
+            else:
+                st.error("❌ البريد الإلكتروني أو كلمة المرور غير صحيحة")
+
+    with st.expander("📝 إنشاء حساب جديد", expanded=False):
+        new_email = st.text_input("📧 البريد الإلكتروني", key="reg_email_right")
+        new_pwd = st.text_input("🔒 كلمة المرور", type="password", key="reg_password_right")
+        if st.button("✅ تسجيل", key="reg_submit_right", use_container_width=True):
+            if not new_email or not new_pwd:
+                st.error("يرجى ملء جميع الحقول")
+            elif register_user(new_email, new_pwd):
+                st.success("✅ تم إنشاء الحساب! يمكنك الآن تسجيل الدخول")
+                log_system_action(new_email, "register")
+            else:
+                st.error("⚠️ هذا البريد الإلكتروني مسجل مسبقاً")
+
+    st.markdown("""
+    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #1e293b; text-align: center;">
+        <p style="color: #64748b; font-size: 0.8rem;">
+            🟢 <strong>وضع الزائر</strong><br>
+            يمكنك تصفح التحليلات<br>
+            مع حد أقصى <strong>1,000 صف</strong>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ========================== CHATBOT TAB ==========================
 def chatbot_tab():
     deepseek_key = get_setting("deepseek_api_key")
     groq_key = get_setting("groq_api_key")
@@ -2268,18 +2294,30 @@ def render_analytics_app():
     with tabs[9]:
         chatbot_tab()
 
-# ========================== MAIN ==========================
+# ========================== MODIFIED MAIN ==========================
 def main():
     if "logged_in" not in st.session_state:
         st.session_state.update({"logged_in": False, "user_email": None, "is_admin": False})
-    login_section()
-    if st.session_state.get("is_admin", False):
-        if st.sidebar.checkbox("🔧 Admin Panel", key="admin_mode_switch"):
-            mega_admin_dashboard()
-        else:
-            render_analytics_app()
-    else:
+
+    # إذا كان المستخدم مسجلاً ندخل مباشرة
+    if st.session_state.get("logged_in", False):
+        # عرض الشريط الجانبي مع خيار تسجيل الخروج
+        with st.sidebar:
+            st.markdown("### 🔐 الحساب")
+            role_label = "👑 مدير" if st.session_state.get("is_admin") else "👤 مستخدم"
+            st.success(f"{role_label}: {st.session_state['user_email']}")
+            if st.button("تسجيل الخروج", key="logout_btn"):
+                for k in ["logged_in", "user_email", "is_admin"]:
+                    st.session_state[k] = False if k != "user_email" else None
+                st.rerun()
         render_analytics_app()
+    else:
+        # المستخدم غير مسجل: عرض عمودين
+        col_left, col_right = st.columns([2, 1], gap="large")
+        with col_left:
+            render_analytics_app()   # عرض التطبيق مع بيانات الضيف
+        with col_right:
+            right_login_panel()      # نموذج تسجيل الدخول على اليمين
 
 if __name__ == "__main__":
     main()
