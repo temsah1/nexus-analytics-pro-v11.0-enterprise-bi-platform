@@ -14,6 +14,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.io as pio
 import requests
 import json
 
@@ -466,12 +467,118 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Mobile-responsive CSS (same as original, omitted for brevity but kept in final code)
+# ================== DARK THEME CSS ==================
 st.markdown("""
 <style>
-/* ... (same CSS as original) ... */
+/* Global dark background */
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: #0f172a !important;
+    color: #f1f5f9 !important;
+}
+
+[data-testid="stSidebar"] {
+    background-color: #0f172a !important;
+    border-right: 1px solid #334155 !important;
+}
+
+[data-testid="stSidebar"] * {
+    color: #f1f5f9 !important;
+}
+
+/* Cards, expanders, metrics */
+.nx-header, .element-container, [data-testid="stExpander"], [data-testid="stMetric"] {
+    background-color: #1e293b !important;
+    border-radius: 20px !important;
+    padding: 1rem !important;
+    margin-bottom: 1rem !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+    color: #f1f5f9 !important;
+}
+
+/* Chat bubbles */
+.chat-message.user .chat-bubble {
+    background-color: #334155 !important;
+    color: white !important;
+}
+.chat-message.assistant .chat-bubble {
+    background-color: #1e293b !important;
+    border: 1px solid #475569 !important;
+    color: #f1f5f9 !important;
+}
+
+/* Input fields */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stTextArea textarea,
+.stNumberInput input {
+    background-color: #334155 !important;
+    color: white !important;
+    border-color: #475569 !important;
+}
+
+/* Buttons */
+.stButton button {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.5rem 1rem !important;
+    font-weight: 600 !important;
+}
+.stButton button:hover {
+    opacity: 0.9 !important;
+    transform: scale(1.02) !important;
+}
+
+/* Dataframes */
+.dataframe, .stDataFrame {
+    background-color: #1e293b !important;
+    color: #f1f5f9 !important;
+}
+.dataframe th {
+    background-color: #334155 !important;
+    color: white !important;
+}
+.dataframe td {
+    background-color: #1e293b !important;
+    color: #f1f5f9 !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 1rem;
+    background-color: #1e293b;
+    border-radius: 20px;
+    padding: 0.5rem;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: #334155;
+    color: white;
+    border-radius: 12px;
+    padding: 0.5rem 1rem;
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    color: white;
+}
+
+/* Plotly charts - background override */
+.js-plotly-plot .plotly .main-svg {
+    background-color: #1e293b !important;
+}
+.js-plotly-plot .plotly .bg {
+    fill: #1e293b !important;
+}
+
+/* Metrics and other text */
+[data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
+    color: #f1f5f9 !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
+# Set default Plotly template to dark
+pio.templates.default = "plotly_dark"
 
 # ========================== HELPER FUNCTIONS ==========================
 def sec_header(tag, title, sub=""):
@@ -479,7 +586,7 @@ def sec_header(tag, title, sub=""):
     <div class="nx-header">
         <span class="nx-tag">{tag}</span>
         <span class="nx-title">{title}</span>
-        <span style="margin-left:auto; font-size:0.7rem; color:#64748b;">{sub}</span>
+        <span style="margin-left:auto; font-size:0.7rem; color:#94a3b8;">{sub}</span>
     </div>""", unsafe_allow_html=True)
 
 def fmt_num(n, prefix="", suffix="", decimals=1):
@@ -1057,7 +1164,7 @@ def chatbot_tab():
     <div style="text-align: center; margin-bottom: 2rem;">
         <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #8b5cf6, #06b6d4); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 28px;">🚀</div>
         <h1 style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 1.8rem;">NEXUS AI Assistant</h1>
-        <p style="color: #64748b;">Powered by DeepSeek, Groq, or your custom AI — Ask me anything</p>
+        <p style="color: #94a3b8;">Powered by DeepSeek, Groq, or your custom AI — Ask me anything</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1182,14 +1289,14 @@ def mega_admin_dashboard():
                 login_counts["status"] = login_counts["success"].map({1: "✅ Success", 0: "❌ Failed"})
                 fig = px.area(login_counts, x="date", y="count", color="status", title="Login Activity",
                               color_discrete_map={"✅ Success": "#10b981", "❌ Failed": "#ef4444"})
-                fig.update_layout(height=350, template="plotly_white")
+                fig.update_layout(height=350, template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 success_rate = df_logs["success"].sum() / len(df_logs) * 100 if len(df_logs) > 0 else 0
                 fig3 = go.Figure(go.Indicator(mode="gauge+number", value=round(success_rate, 1),
                                               title={"text": "Login Success Rate (%)"},
                                               gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#8b5cf6"}}))
-                fig3.update_layout(height=300)
+                fig3.update_layout(height=300, template="plotly_dark")
                 st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No login data yet.")
@@ -1404,13 +1511,16 @@ def mega_admin_dashboard():
                 action_counts = df_sys["Action"].value_counts().reset_index()
                 action_counts.columns = ["Action", "Count"]
                 fig = px.pie(action_counts, names="Action", values="Count", title="Action Distribution")
+                fig.update_layout(template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 daily = df_sys.groupby("date").size().reset_index(name="actions")
                 fig2 = px.bar(daily, x="date", y="actions", title="Daily Activity")
+                fig2.update_layout(template="plotly_dark")
                 st.plotly_chart(fig2, use_container_width=True)
             top_users = df_sys.groupby("User").size().reset_index(name="actions").sort_values("actions", ascending=False).head(10)
             fig3 = px.bar(top_users, x="User", y="actions", title="Most Active Users")
+            fig3.update_layout(template="plotly_dark")
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No analytics data yet.")
@@ -1435,11 +1545,11 @@ def subscription_plans_tab():
     for idx, plan in enumerate(plans):
         with cols[idx]:
             st.markdown(f"""
-            <div style="background: white; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; margin-bottom: 1rem;">
-                <h3 style="margin-bottom: 0.5rem;">{plan['name']}</h3>
+            <div style="background: #1e293b; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; margin-bottom: 1rem;">
+                <h3 style="margin-bottom: 0.5rem; color:#f1f5f9;">{plan['name']}</h3>
                 <p style="font-size: 1.5rem; font-weight: 800; color: #8b5cf6;">${plan['price_monthly']:.2f}<span style="font-size: 0.9rem;">/month</span></p>
-                <p style="font-size: 0.8rem;">or ${plan['price_yearly']:.2f}/year</p>
-                <hr>
+                <p style="font-size: 0.8rem; color:#94a3b8;">or ${plan['price_yearly']:.2f}/year</p>
+                <hr style="border-color:#334155;">
                 <p>📊 Max rows: {plan['max_rows']:,}</p>
                 <p>✨ {plan['features'][:80]}...</p>
             </div>
@@ -1605,7 +1715,7 @@ def render_analytics_app():
             with st.expander("Stats"):
                 st.dataframe(df.describe(include="all").T, use_container_width=True)
 
-    # ---------- KPIs (unchanged) ----------
+    # ---------- KPIs ----------
     with tabs[1]:
         sec_header("01", "Key Performance Indicators", "Revenue & Profit")
         sales_col = st.session_state["col_map"].get("sales", "—")
@@ -1629,16 +1739,18 @@ def render_analytics_app():
                 with col1:
                     df_ts = df.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
                     fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
+                    fig.update_layout(template="plotly_dark")
                     st.plotly_chart(fig, use_container_width=True)
                 with col2:
                     if cat_col != "—" and cat_col in df.columns:
                         cat_sales = df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(sales_col, ascending=False)
                         fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category")
+                        fig2.update_layout(template="plotly_dark")
                         st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Map a Sales column in sidebar.")
 
-    # ---------- Forecasting (unchanged) ----------
+    # ---------- Forecasting ----------
     with tabs[2]:
         sec_header("02", "Demand Forecasting", "AI-powered prediction")
         if not is_pro_or_enterprise:
@@ -1667,7 +1779,7 @@ def render_analytics_app():
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Upper"], fill=None, line=dict(color="rgba(0,0,0,0)"), showlegend=False))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence", fillcolor="rgba(139,92,246,0.15)", line=dict(color="rgba(0,0,0,0)")))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f59e0b", dash="dash")))
-                                fig.update_layout(height=500, template="plotly_white")
+                                fig.update_layout(height=500, template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                                 st.dataframe(fcast.round(2), use_container_width=True)
                         except Exception as e:
@@ -1675,7 +1787,7 @@ def render_analytics_app():
             else:
                 st.info("Map Sales and Date columns.")
 
-    # ---------- Profit Optimizer (unchanged) ----------
+    # ---------- Profit Optimizer ----------
     with tabs[3]:
         sec_header("03", "AI Profit Optimizer", "Voting Ensemble")
         profit_col = st.session_state["col_map"].get("profit", "—")
@@ -1699,17 +1811,19 @@ def render_analytics_app():
                             with col1:
                                 imp_df = pd.Series(imp).sort_values(ascending=True)
                                 fig = px.bar(imp_df, orientation="h", title="Feature Importance")
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                             with col2:
                                 perm_df = pd.Series(perm_imp).sort_values(ascending=True)
                                 fig2 = px.bar(perm_df, orientation="h", title="Permutation Importance")
+                                fig2.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig2, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {e}")
         else:
             st.info("Map a Profit column.")
 
-    # ---------- Segmentation (unchanged) ----------
+    # ---------- Segmentation ----------
     with tabs[4]:
         sec_header("04", "Customer Intelligence", "RFM & Clustering")
         cust_col = st.session_state["col_map"].get("customer", "—")
@@ -1726,9 +1840,11 @@ def render_analytics_app():
                         with col1:
                             seg_counts = rfm["Segment"].value_counts()
                             fig = px.pie(seg_counts, names=seg_counts.index, values=seg_counts.values, title="Segments")
+                            fig.update_layout(template="plotly_dark")
                             st.plotly_chart(fig, use_container_width=True)
                         with col2:
                             fig2 = px.scatter(rfm, x="Frequency", y="Monetary", color="Segment", size="RFM_Score", title="RFM Scatter")
+                            fig2.update_layout(template="plotly_dark")
                             st.plotly_chart(fig2, use_container_width=True)
                     else:
                         st.warning("RFM failed.")
@@ -1762,16 +1878,18 @@ def render_analytics_app():
                                 fig = px.scatter(x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
                                                  title=f"PCA Projection - {method.upper()}",
                                                  labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"})
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                                 if inertias:
                                     fig2 = px.line(x=list(inertias.keys()), y=list(inertias.values()), markers=True, title="Elbow Method")
+                                    fig2.update_layout(template="plotly_dark")
                                     st.plotly_chart(fig2, use_container_width=True)
                         except Exception as e:
                             st.error(f"Error: {e}")
                 else:
                     st.info("Need at least 2 numeric columns.")
 
-    # ---------- Market Basket (unchanged) ----------
+    # ---------- Market Basket ----------
     with tabs[5]:
         sec_header("05", "Market Basket", "Apriori rules")
         if not is_pro_or_enterprise:
@@ -1796,6 +1914,7 @@ def render_analytics_app():
                                 st.success(f"Found {len(rules_filtered)} rules.")
                                 st.dataframe(rules_filtered[["antecedents", "consequents", "support", "confidence", "lift"]].sort_values("lift", ascending=False), use_container_width=True)
                                 fig = px.scatter(rules_filtered, x="support", y="confidence", color="lift", size="lift", title="Support vs Confidence")
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.info(msg)
@@ -1804,7 +1923,7 @@ def render_analytics_app():
             else:
                 st.info("Map Customer ID and Product columns.")
 
-    # ---------- Advanced Analytics (unchanged) ----------
+    # ---------- Advanced Analytics ----------
     with tabs[6]:
         sec_header("06", "Advanced Analytics", "Correlations, Anomalies")
         adv_tab1, adv_tab2, adv_tab3 = st.tabs(["Correlations", "Anomaly Detection", "Data Explorer"])
@@ -1813,11 +1932,11 @@ def render_analytics_app():
             if len(num_cols) >= 2:
                 corr = df[num_cols].corr()
                 fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", title="Correlation Matrix", aspect="auto")
-                fig.update_layout(height=500)
+                fig.update_layout(height=500, template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
                 top4 = num_cols[:min(4, len(num_cols))]
                 fig2 = px.scatter_matrix(df[top4].dropna().sample(min(500, len(df))), title="Scatter Matrix")
-                fig2.update_layout(height=600)
+                fig2.update_layout(height=600, template="plotly_dark")
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("Need 2+ numeric columns.")
@@ -1836,6 +1955,7 @@ def render_analytics_app():
                         if n_anom > 0 and len(feat_anom) >= 2:
                             fig = px.scatter(x=clean_df.iloc[:,0], y=clean_df.iloc[:,1], color=np.where(anomalies, "Anomaly", "Normal"),
                                              title="Anomaly Visualization", color_discrete_map={"Anomaly":"#ef4444","Normal":"#10b981"})
+                            fig.update_layout(template="plotly_dark")
                             st.plotly_chart(fig, use_container_width=True)
                         if n_anom > 0:
                             clean_idx = clean_df.index
@@ -1860,7 +1980,7 @@ def render_analytics_app():
                 st.info("Map a Date column for filtering.")
                 st.dataframe(df.sample(min(200, len(df))), use_container_width=True)
 
-    # ---------- Executive Report (unchanged) ----------
+    # ---------- Executive Report ----------
     with tabs[7]:
         sec_header("07", "Executive Report", "AI-generated summary")
         if st.button("Generate Report"):
