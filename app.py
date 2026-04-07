@@ -51,7 +51,7 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 # ========================== CONFIGURATION ==========================
-MAX_FILE_SIZE_MB = 5000
+MAX_FILE_SIZE_MB = 1000
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024 * 5
 GUEST_MAX_ROWS = 1000
 
@@ -1480,7 +1480,7 @@ def mega_admin_dashboard():
             with st.expander(f"✏️ Edit {plan['name']}"):
                 new_price_m = st.number_input(f"Monthly Price (${plan['name']})", value=float(plan['price_monthly']), step=1.0, key=f"pm_{plan['id']}")
                 new_price_y = st.number_input(f"Yearly Price (${plan['name']})", value=float(plan['price_yearly']), step=10.0, key=f"py_{plan['id']}")
-                new_rows = st.number_input(f"Max Rows", value=int(plan['max_rows']), step=5000, key=f"rows_{plan['id']}")
+                new_rows = st.number_input(f"Max Rows", value=int(plan['max_rows']), step=1000, key=f"rows_{plan['id']}")
                 new_feat = st.text_area(f"Features", value=plan['features'], height=100, key=f"feat_{plan['id']}")
                 if st.button(f"Update {plan['name']}", key=f"upd_{plan['id']}"):
                     update_plan(plan['id'], new_price_m, new_price_y, new_rows, new_feat)
@@ -1527,7 +1527,7 @@ def mega_admin_dashboard():
         
         st.markdown("---")
         st.markdown("#### 📁 Upload Limit")
-        new_limit = st.number_input("Max Upload Size (MB)", min_value=100, max_value=5000, value=MAX_FILE_SIZE_MB, step=50)
+        new_limit = st.number_input("Max Upload Size (MB)", min_value=100, max_value=1000, value=MAX_FILE_SIZE_MB, step=50)
         if st.button("Apply New Limit"):
             try:
                 CONFIG_DIR.mkdir(exist_ok=True)
