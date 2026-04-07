@@ -137,6 +137,15 @@ def init_db():
         )
     ''')
     
+    # App settings table (for global API key, etc.)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # Insert default plans if not exist
     c.execute("SELECT COUNT(*) FROM subscription_plans")
     if c.fetchone()[0] == 0:
@@ -147,6 +156,9 @@ def init_db():
         ]
         c.executemany("INSERT INTO subscription_plans (name, price_monthly, price_yearly, max_rows, features, is_active) VALUES (?,?,?,?,?,?)", plans)
     
+    # Insert default setting for deepseek_api_key (empty initially)
+    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('deepseek_api_key', '')")
+    
     conn.commit()
     
     # Create or update admin user (kareemeltemsah7@gmail.com / temsah1!)
@@ -156,7 +168,6 @@ def init_db():
     c.execute("SELECT id FROM users WHERE email = ?", (admin_email,))
     existing = c.fetchone()
     if existing:
-        # Update password and ensure is_admin = 1
         c.execute("UPDATE users SET password_hash = ?, is_admin = 1 WHERE email = ?", (hashed, admin_email))
     else:
         c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)",
@@ -382,7 +393,6 @@ def get_all_subscriptions():
             ORDER BY us.start_date DESC
         ''')
         rows = c.fetchall()
-        # Convert to list of dicts with proper column names
         result = []
         for row in rows:
             result.append({
@@ -406,7 +416,6 @@ def get_subscription_stats():
             GROUP BY sp.name
         ''')
         plan_counts = {row["name"]: row["user_count"] for row in c.fetchall()}
-        # revenue simulation (monthly)
         c.execute("SELECT SUM(sp.price_monthly) FROM user_subscriptions us JOIN subscription_plans sp ON us.plan_id = sp.id WHERE us.is_active = 1")
         monthly_revenue = c.fetchone()[0] or 0
         return plan_counts, monthly_revenue
@@ -415,7 +424,6 @@ def cancel_subscription(user_id):
     with get_db() as conn:
         c = conn.cursor()
         c.execute("UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ? AND is_active = 1", (user_id,))
-        # assign free plan
         c.execute("SELECT id FROM subscription_plans WHERE name = 'Free'")
         free_plan = c.fetchone()
         if free_plan:
@@ -434,6 +442,22 @@ def extend_subscription(user_id, extra_months=1):
             conn.commit()
             return True
         return False
+
+# ======================== GLOBAL SETTINGS (DeepSeek API Key) ========================
+def get_setting(key, default=""):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = c.fetchone()
+        return row["value"] if row else default
+
+def set_setting(key, value):
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                  (key, value))
+        conn.commit()
+        log_system_action("system", "update_setting", f"Updated {key}")
 
 # ========================== PAGE CONFIG ==========================
 st.set_page_config(
@@ -537,7 +561,6 @@ h1, h2, h3 {
     padding: 1rem 1.2rem;
     margin: 1rem 0;
 }
-/* Make input fields darker */
 input, [data-testid="stTextInput"] input, [data-testid="stTextInput"] div[data-baseweb="input"] {
     background-color: #eef2ff !important;
     border-radius: 12px !important;
@@ -548,13 +571,58 @@ input, [data-testid="stTextInput"] input, [data-testid="stTextInput"] div[data-b
     border-color: #8b5cf6 !important;
     box-shadow: 0 0 0 2px rgba(139,92,246,0.2);
 }
-/* Chat message styling */
-[data-testid="stChatMessage"] {
-    background: rgba(255,255,255,0.7);
-    backdrop-filter: blur(4px);
-    border-radius: 20px;
-    margin: 0.5rem 0;
-    padding: 0.5rem;
+/* Chat message styling - DeepSeek like */
+.chat-container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+.chat-message {
+    display: flex;
+    gap: 12px;
+    margin: 16px 0;
+}
+.chat-message.user {
+    justify-content: flex-end;
+}
+.chat-message.assistant {
+    justify-content: flex-start;
+}
+.chat-bubble {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 24px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+.user .chat-bubble {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+.assistant .chat-bubble {
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+.user .avatar {
+    background: #8b5cf6;
+    color: white;
+    order: 1;
+}
+.assistant .avatar {
+    background: #06b6d4;
+    color: white;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -591,15 +659,13 @@ def get_data_context(df):
     if df is None or len(df) == 0:
         return "No data currently loaded."
     
-    # Get basic info
     num_rows = len(df)
     num_cols = len(df.columns)
     columns_list = list(df.columns)
     
-    # Get sample of numeric columns for statistical context
     numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
     numeric_stats = {}
-    for col in numeric_cols[:10]:  # Limit to first 10 numeric columns
+    for col in numeric_cols[:10]:
         try:
             numeric_stats[col] = {
                 "min": float(df[col].min()) if not pd.isna(df[col].min()) else None,
@@ -610,7 +676,6 @@ def get_data_context(df):
         except:
             pass
     
-    # Get sample of categorical columns
     categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     categorical_samples = {}
     for col in categorical_cols[:5]:
@@ -620,7 +685,6 @@ def get_data_context(df):
         except:
             pass
     
-    # Build context string
     context = f"""
 Dataset Overview:
 - Total rows: {num_rows:,}
@@ -640,6 +704,9 @@ First 5 rows of data:
 
 def call_deepseek_api(messages, api_key, max_tokens=2000, temperature=0.7):
     """Call DeepSeek API with given messages."""
+    if not api_key:
+        return None, "DeepSeek API key not configured. Please ask the admin to set it in System Settings."
+    
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -670,7 +737,6 @@ def call_deepseek_api(messages, api_key, max_tokens=2000, temperature=0.7):
 def get_chatbot_response(user_message, api_key, chat_history, df=None):
     """Get response from DeepSeek API with data context."""
     
-    # System prompt defining the chatbot's role
     system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. Your capabilities include:
 
 1. **Data Analysis**: Answer questions about the user's loaded dataset. Provide insights, summaries, statistical analysis, and recommendations based on the data provided.
@@ -698,16 +764,13 @@ Response Guidelines:
 
 The current dataset information (if any) is provided in the user message context."""
     
-    # Build messages array
     messages = [
         {"role": "system", "content": system_prompt},
     ]
     
-    # Add chat history (last 10 messages to stay within token limits)
     for msg in chat_history[-20:]:
         messages.append({"role": msg["role"], "content": msg["content"]})
     
-    # Add current user message with data context if available
     if df is not None and len(df) > 0:
         data_context = get_data_context(df)
         user_content = f"""
@@ -723,11 +786,10 @@ Please answer based on the dataset context provided. If the question is not rela
     
     messages.append({"role": "user", "content": user_content})
     
-    # Call API
     response, error = call_deepseek_api(messages, api_key)
     return response, error
 
-# ========================== DATA FUNCTIONS ==========================
+# ========================== DATA FUNCTIONS (Improved Date Handling) ==========================
 @st.cache_data(show_spinner=False)
 def load_builtin_dataset():
     np.random.seed(99)
@@ -770,10 +832,34 @@ def detect_column_types(df):
     roles = {"date": [], "numeric": [], "categorical": [], "id": []}
     for col in df.columns:
         s = df[col]
-        if pd.api.types.is_datetime64_any_dtype(s) or (
-            s.dtype == object and pd.to_datetime(s, errors='coerce').notna().mean() > 0.6
-        ):
+        if pd.api.types.is_datetime64_any_dtype(s):
             roles["date"].append(col)
+        elif s.dtype == object:
+            # Try to convert to datetime with multiple formats
+            sample = s.dropna().head(100)
+            if len(sample) > 0:
+                # Test common formats
+                is_date = False
+                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y', '%m-%d-%Y'):
+                    try:
+                        pd.to_datetime(sample, format=fmt, errors='raise')
+                        is_date = True
+                        break
+                    except:
+                        continue
+                if not is_date:
+                    # Fallback to flexible parsing
+                    try:
+                        if pd.to_datetime(sample, errors='coerce').notna().mean() > 0.6:
+                            is_date = True
+                    except:
+                        pass
+                if is_date:
+                    roles["date"].append(col)
+                elif s.nunique() < 50:
+                    roles["categorical"].append(col)
+                else:
+                    roles["id"].append(col)
         elif pd.api.types.is_numeric_dtype(s):
             lc = col.lower()
             if lc in ["id", "row id", "index", "customer id", "order id"] or col.endswith("_id"):
@@ -781,25 +867,35 @@ def detect_column_types(df):
             else:
                 roles["numeric"].append(col)
         else:
-            if s.nunique() < 50:
-                roles["categorical"].append(col)
-            else:
-                roles["id"].append(col)
+            roles["categorical"].append(col)
     return roles
 
-def smart_clean(df, roles):
+def smart_clean(df, roles, manual_date_format=None):
     df = df.copy()
+    # Handle date columns
     for col in roles["date"]:
-        df[col] = pd.to_datetime(df[col], errors="coerce")
+        if manual_date_format:
+            try:
+                df[col] = pd.to_datetime(df[col], format=manual_date_format, errors='coerce')
+            except:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        else:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+        # If conversion fails entirely, keep original as string
+        if df[col].isnull().all():
+            df[col] = df[col].astype(str)
+    
     for col in roles["numeric"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[col] = pd.to_numeric(df[col], errors='coerce')
         if df[col].isnull().all():
             df[col].fillna(0, inplace=True)
         else:
             df[col].fillna(df[col].median(), inplace=True)
+    
     for col in roles["categorical"]:
         mode_val = df[col].mode()
         df[col].fillna(mode_val.iloc[0] if not mode_val.empty else "Unknown", inplace=True)
+    
     return df
 
 # ========================== ML FUNCTIONS ==========================
@@ -1045,49 +1141,26 @@ def login_section():
         st.sidebar.info("💡 Guest mode: limited features.")
         return False
 
-# ========================== CHATBOT TAB ==========================
+# ========================== CHATBOT TAB (Redesigned like DeepSeek) ==========================
 def chatbot_tab():
-    sec_header("AI", "NEXUS AI Assistant", "Powered by DeepSeek")
+    # Get global API key from settings
+    api_key = get_setting("deepseek_api_key")
+    
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <img src="https://via.placeholder.com/60x60?text=NEXUS" style="width: 60px; border-radius: 50%;">
+        <h1 style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 2rem;">NEXUS AI Assistant</h1>
+        <p style="color: #64748b;">Powered by DeepSeek — Ask me anything about your data or platform</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Initialize session state for chat
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
-        # Add welcome message
         st.session_state.chat_messages.append({
             "role": "assistant",
-            "content": """Hello! I'm NEXUS AI, your intelligent assistant. I can help you with:
-
-📊 **Data Analysis**: Ask me anything about your loaded dataset
-💰 **Financial Insights**: Get revenue, profit, and trend analysis
-🔧 **Platform Help**: Learn how to use NEXUS Analytics Pro features
-🐛 **Troubleshooting**: Fix common issues and errors
-
-To get started, enter your DeepSeek API key below, then ask me a question about your data or the platform!"""
+            "content": "Hello! I'm NEXUS AI, your intelligent assistant. How can I help you today? You can ask me about your loaded dataset, platform features, or troubleshooting."
         })
-    
-    if "deepseek_api_key" not in st.session_state:
-        st.session_state.deepseek_api_key = ""
-    
-    # API Key input
-    with st.expander("🔑 DeepSeek API Key Settings", expanded=not st.session_state.deepseek_api_key):
-        st.markdown("""
-        To use the AI assistant, you need a DeepSeek API key.
-        1. Go to [DeepSeek Platform](https://platform.deepseek.com/)
-        2. Sign up for a free account
-        3. Navigate to API Keys section
-        4. Create a new key and copy it here
-        """)
-        api_key_input = st.text_input("DeepSeek API Key", type="password", value=st.session_state.deepseek_api_key, key="deepseek_api_input")
-        if st.button("Save API Key"):
-            if api_key_input.startswith("sk-"):
-                st.session_state.deepseek_api_key = api_key_input
-                st.success("API Key saved successfully!")
-                st.rerun()
-            elif api_key_input:
-                st.warning("Please enter a valid DeepSeek API key (should start with 'sk-')")
-            else:
-                st.session_state.deepseek_api_key = ""
-                st.info("API Key cleared.")
     
     # Clear chat button
     col1, col2 = st.columns([6, 1])
@@ -1100,45 +1173,67 @@ To get started, enter your DeepSeek API key below, then ask me a question about 
             })
             st.rerun()
     
-    # Get current dataframe for context
-    current_df = st.session_state.get("df", None)
-    
-    # Display chat messages
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # Display chat messages in custom HTML/CSS (DeepSeek-like)
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.chat_messages:
+            if msg["role"] == "user":
+                st.markdown(f"""
+                <div class="chat-message user">
+                    <div class="avatar">👤</div>
+                    <div class="chat-bubble">{msg['content']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="chat-message assistant">
+                    <div class="avatar">🤖</div>
+                    <div class="chat-bubble">{msg['content']}</div>
+                </div>
+                """, unsafe_allow_html=True)
     
     # Chat input
-    if prompt := st.chat_input("Ask me about your data or the platform..."):
-        # Add user message to chat
+    prompt = st.chat_input("Ask me about your data or the platform...")
+    if prompt:
+        # Add user message
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        with chat_container:
+            st.markdown(f"""
+            <div class="chat-message user">
+                <div class="avatar">👤</div>
+                <div class="chat-bubble">{prompt}</div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        # Check if API key is set
-        if not st.session_state.deepseek_api_key:
-            with st.chat_message("assistant"):
-                error_msg = "⚠️ Please set your DeepSeek API key in the settings above before asking questions."
-                st.markdown(error_msg)
-                st.session_state.chat_messages.append({"role": "assistant", "content": error_msg})
+        # Get response
+        current_df = st.session_state.get("df", None)
+        if not api_key:
+            error_msg = "⚠️ DeepSeek API key is not configured. Please contact the administrator to set it in the System Settings (Admin panel)."
+            st.session_state.chat_messages.append({"role": "assistant", "content": error_msg})
+            with chat_container:
+                st.markdown(f"""
+                <div class="chat-message assistant">
+                    <div class="avatar">🤖</div>
+                    <div class="chat-bubble">{error_msg}</div>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            # Get response from DeepSeek
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    response, error = get_chatbot_response(
-                        prompt,
-                        st.session_state.deepseek_api_key,
-                        st.session_state.chat_messages[:-1],  # Exclude the current user message
-                        current_df
-                    )
-                    if error:
-                        st.error(f"Error: {error}")
-                        st.session_state.chat_messages.append({"role": "assistant", "content": f"Sorry, an error occurred: {error}"})
-                    else:
-                        st.markdown(response)
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
-        
-        # Rerun to update chat display
+            with st.spinner("Thinking..."):
+                response, error = get_chatbot_response(
+                    prompt, api_key, st.session_state.chat_messages[:-1], current_df
+                )
+                if error:
+                    response_text = f"Sorry, an error occurred: {error}"
+                else:
+                    response_text = response
+                st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                with chat_container:
+                    st.markdown(f"""
+                    <div class="chat-message assistant">
+                        <div class="avatar">🤖</div>
+                        <div class="chat-bubble">{response_text}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
         st.rerun()
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
@@ -1158,7 +1253,6 @@ def mega_admin_dashboard():
 
     stats = get_stats()
 
-    # ---- TOP KPI ROW ----
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
         st.metric("👥 Total Users", stats["total_users"])
@@ -1175,7 +1269,6 @@ def mega_admin_dashboard():
 
     st.markdown("---")
 
-    # ---- ADMIN TABS ----
     admin_tabs = st.tabs([
         "📊 Dashboard Overview",
         "👤 User Management",
@@ -1244,7 +1337,6 @@ def mega_admin_dashboard():
                 st.plotly_chart(fig3, use_container_width=True)
 
             with col4:
-                # Top users by login count
                 top_users = (
                     df_logs[df_logs["success"] == 1]
                     .groupby("email")
@@ -1263,8 +1355,6 @@ def mega_admin_dashboard():
         else:
             st.info("No login data yet.")
 
-        # System summary boxes
-        st.markdown("### 🖥️ Platform Summary")
         col1, col2, col3 = st.columns(3)
         with col1:
             db_size = os.path.getsize(DB_PATH) / (1024 * 1024) if os.path.exists(DB_PATH) else 0
@@ -1429,7 +1519,6 @@ def mega_admin_dashboard():
         subs = get_all_subscriptions()
         if subs:
             df_subs = pd.DataFrame(subs)
-            # Ensure columns exist
             if "start_date" in df_subs.columns:
                 df_subs["start_date"] = pd.to_datetime(df_subs["start_date"]).dt.strftime("%Y-%m-%d")
             if "end_date" in df_subs.columns:
@@ -1466,7 +1555,6 @@ def mega_admin_dashboard():
                 st.success(f"Subscription cancelled for user {user_id_extend}, reverted to Free plan.")
                 st.rerun()
 
-        # Stats
         plan_counts, monthly_revenue = get_subscription_stats()
         st.markdown("---")
         st.markdown("#### 📊 Subscription Revenue & Distribution")
@@ -1478,7 +1566,7 @@ def mega_admin_dashboard():
             for plan, cnt in plan_counts.items():
                 st.write(f"- {plan}: {cnt} users")
 
-    # ---- TAB 4: PLAN MANAGEMENT (Admin only) ----
+    # ---- TAB 4: PLAN MANAGEMENT ----
     with admin_tabs[4]:
         sec_header("PLAN MANAGEMENT", "Edit Subscription Plans", "Change prices, limits, features")
 
@@ -1494,12 +1582,23 @@ def mega_admin_dashboard():
                     st.success(f"✅ {plan['name']} plan updated successfully.")
                     st.rerun()
 
-    # ---- TAB 5: SYSTEM SETTINGS ----
+    # ---- TAB 5: SYSTEM SETTINGS (Including DeepSeek API Key) ----
     with admin_tabs[5]:
         sec_header("SETTINGS", "System Configuration", "Platform controls")
 
         col1, col2 = st.columns(2)
         with col1:
+            st.markdown("#### 🤖 DeepSeek API Configuration")
+            current_api_key = get_setting("deepseek_api_key")
+            new_api_key = st.text_input("DeepSeek API Key", type="password", value=current_api_key, key="global_api_key")
+            if st.button("💾 Save API Key", key="save_api_key"):
+                set_setting("deepseek_api_key", new_api_key)
+                st.success("✅ DeepSeek API key saved. The chatbot will now use this key.")
+                log_system_action(st.session_state.get("user_email", "admin"), "update_deepseek_key", "Global DeepSeek API key updated")
+                st.rerun()
+            st.caption("This key will be used for all users. Make sure it has sufficient credits.")
+
+        with col2:
             st.markdown("#### 📁 Upload Limit")
             new_limit = st.number_input(
                 "Max Upload Size (MB)", min_value=100, max_value=5000,
@@ -1519,17 +1618,17 @@ def mega_admin_dashboard():
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-        with col2:
-            st.markdown("#### 🗑️ Cache Management")
-            st.info("Clear Streamlit cache to reload models and data.")
-            if st.button("🧹 Clear All Cache", key="clear_cache"):
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                log_system_action(
-                    st.session_state.get("user_email", "admin"),
-                    "clear_cache", "Cleared all Streamlit cache"
-                )
-                st.success("✅ Cache cleared. Please refresh the page.")
+        st.markdown("---")
+        st.markdown("#### 🗑️ Cache Management")
+        st.info("Clear Streamlit cache to reload models and data.")
+        if st.button("🧹 Clear All Cache", key="clear_cache"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            log_system_action(
+                st.session_state.get("user_email", "admin"),
+                "clear_cache", "Cleared all Streamlit cache"
+            )
+            st.success("✅ Cache cleared. Please refresh the page.")
 
         st.markdown("---")
         st.markdown("#### 💾 Database Info")
@@ -1571,7 +1670,6 @@ def mega_admin_dashboard():
                 fig2.update_layout(height=380, template="plotly_white")
                 st.plotly_chart(fig2, use_container_width=True)
 
-            # Most active users in the platform
             top_active = df_sys.groupby("User").size().reset_index(name="actions").sort_values("actions", ascending=False).head(10)
             fig3 = px.bar(
                 top_active, x="User", y="actions",
@@ -1583,7 +1681,7 @@ def mega_admin_dashboard():
         else:
             st.info("No platform analytics data yet.")
 
-# ========================== SUBSCRIPTION PLANS TAB (User View with Payment Simulation) ==========================
+# ========================== SUBSCRIPTION PLANS TAB ==========================
 def subscription_plans_tab():
     sec_header("PLANS", "Choose Your Plan", "Upgrade for full features")
     
@@ -1616,7 +1714,6 @@ def subscription_plans_tab():
             </div>
             """, unsafe_allow_html=True)
             
-            # Admin can assign directly; regular users can purchase with payment simulation
             if plan['name'] != current_sub['name']:
                 if st.session_state.get("is_admin", False):
                     if st.button(f"Assign {plan['name']} to User", key=f"admin_assign_{plan['id']}"):
@@ -1626,7 +1723,6 @@ def subscription_plans_tab():
                         else:
                             st.error("Assignment failed.")
                 else:
-                    # Regular user: show payment simulation form
                     with st.form(key=f"payment_form_{plan['id']}"):
                         st.markdown("**💳 Payment Details (Simulated)**")
                         card_number = st.text_input("Card Number", placeholder="4242 4242 4242 4242", key=f"card_{plan['id']}")
@@ -1635,9 +1731,7 @@ def subscription_plans_tab():
                         name = st.text_input("Cardholder Name", key=f"name_{plan['id']}")
                         submitted = st.form_submit_button(f"Subscribe to {plan['name']} - ${plan['price_monthly']}/month")
                         if submitted:
-                            # Simulate payment validation
                             if card_number and exp_date and cvv and name:
-                                # In real app, integrate Stripe/PayPal. Here we simulate success.
                                 success = upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated_card")
                                 if success:
                                     st.success(f"✅ Payment successful! You are now on {plan['name']} plan.")
@@ -1712,7 +1806,11 @@ def render_analytics_app():
                             if st.session_state["source"] != uploaded.name:
                                 st.session_state["df_raw"] = df_new
                                 st.session_state["roles"] = detect_column_types(df_new)
-                                st.session_state["df"] = smart_clean(df_new, st.session_state["roles"])
+                                # Allow manual date format if needed
+                                manual_date_format = None
+                                if len(st.session_state["roles"]["date"]) == 0:
+                                    st.warning("No date column detected automatically. You can manually select a date column and format in Column Mapping.")
+                                st.session_state["df"] = smart_clean(df_new, st.session_state["roles"], manual_date_format)
                                 st.session_state["source"] = uploaded.name
                                 st.session_state["col_map"] = {}
                                 log_system_action(
@@ -1728,7 +1826,6 @@ def render_analytics_app():
         else:
             if st.session_state["source"] != "builtin":
                 df_bi = load_builtin_dataset()
-                # Built-in dataset has 5000 rows, check limit
                 if user_plan and len(df_bi) > user_plan['max_rows']:
                     st.error(f"❌ Built-in dataset has {len(df_bi):,} rows, but your plan ({user_plan['name']}) allows only {user_plan['max_rows']:,} rows. Please upgrade.")
                 else:
@@ -1772,7 +1869,6 @@ def render_analytics_app():
     if user_plan and user_plan['name'] in ['Pro', 'Enterprise']:
         is_pro_or_enterprise = True
     elif not st.session_state.get("logged_in", False):
-        # Guest mode: limited features
         is_pro_or_enterprise = False
 
     tabs = st.tabs([
@@ -2111,7 +2207,6 @@ def render_analytics_app():
                 fig.update_layout(height=500)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Pair plot for top 4 numeric
                 top4 = num_cols[:min(4, len(num_cols))]
                 fig2 = px.scatter_matrix(df[top4].dropna().sample(min(500, len(df))),
                                          title="📊 Scatter Matrix (top 4 numeric)")
@@ -2150,7 +2245,6 @@ def render_analytics_app():
 
                         if n_anom > 0:
                             st.markdown("**Anomalous Records:**")
-                            # Align index properly
                             clean_idx = clean_df.index
                             anom_idx = clean_idx[anomalies]
                             st.dataframe(df.loc[anom_idx].head(50), use_container_width=True)
