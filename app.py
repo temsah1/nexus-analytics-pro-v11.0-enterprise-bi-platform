@@ -83,10 +83,19 @@ def read_csv_with_encoding(uploaded_file):
     
     def try_parse_date_column(series):
         """محاولة تحويل عمود إلى تاريخ بأمان"""
-        if series.dtype != 'object':
-            return None
-        
-        sample = series.dropna().head(50)
+        # 1. إزالة شرط الـ object للسماح بفحص الأرقام التي قد تكون تواريخ (مثل 20230514)
+        # إذا كان العمود من نوع datetime أصلاً، لا داعي لمعالجته
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return series
+
+        # تجاهل الأعمدة الرقمية التي تحتوي على أرقام صغيرة (مثل الكميات أو الأسعار)
+        # للتركيز على الأرقام التي تشبه YYYYMMDD
+        if pd.api.types.is_numeric_dtype(series):
+            if series.dropna().mean() < 100000:  
+                return None
+
+        # 2. تحويل العينة إلى نص لضمان نجاح عملية الفحص
+        sample = series.dropna().astype(str).head(50)
         if len(sample) == 0:
             return None
         
@@ -94,17 +103,17 @@ def read_csv_with_encoding(uploaded_file):
         for fmt in DATE_FORMATS:
             try:
                 parsed = pd.to_datetime(sample, format=fmt, errors='raise')
-                # إذا نجح مع أكثر من 80% من العينة
-                full_parsed = pd.to_datetime(series, format=fmt, errors='coerce')
+                # إذا نجح مع العينة، نطبقه على السلسلة كاملة
+                full_parsed = pd.to_datetime(series.astype(str), format=fmt, errors='coerce')
                 success_rate = full_parsed.notna().mean()
                 if success_rate > 0.7:
                     return full_parsed
             except (ValueError, TypeError):
                 continue
         
-        # محاولة التحليل التلقائي مع داتبارسر
+        # 3. محاولة التحليل التلقائي مع دعم Pandas الحديث
         try:
-            full_parsed = pd.to_datetime(series, infer_datetime_format=True, errors='coerce')
+            full_parsed = pd.to_datetime(series.astype(str), format='mixed', errors='coerce')
             success_rate = full_parsed.notna().mean()
             if success_rate > 0.7:
                 return full_parsed
@@ -120,17 +129,16 @@ def read_csv_with_encoding(uploaded_file):
             
             # اكتشاف وتحويل أعمدة التاريخ
             for col in df.columns:
-                if df[col].dtype == 'object':
-                    parsed = try_parse_date_column(df[col])
-                    if parsed is not None:
-                        df[col] = parsed
+                # إزالة قيد الـ object من هنا أيضاً
+                parsed = try_parse_date_column(df[col])
+                if parsed is not None:
+                    df[col] = parsed
             
             return df, enc
         except (UnicodeDecodeError, Exception):
             continue
     
     raise UnicodeDecodeError("utf-8", b"", 0, 1, "Unable to decode file with common encodings.")
-
 
 # ========================== DATABASE ==========================
 DB_PATH = "nexus_users.db"
