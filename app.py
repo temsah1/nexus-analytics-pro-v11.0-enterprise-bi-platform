@@ -147,15 +147,15 @@ def init_db():
     
     conn.commit()
     
-    # Create admin user (kareemeltemsah7@gmail.com / temsah1!)
+    # Create or update admin user (kareemeltemsah7@gmail.com / temsah1!)
     admin_email = "kareemeltemsah7@gmail.com"
     admin_pass = "temsah1!"
     hashed = hashlib.sha256(admin_pass.encode()).hexdigest()
     c.execute("SELECT id FROM users WHERE email = ?", (admin_email,))
     existing = c.fetchone()
     if existing:
-        # Update password in case it changed
-        c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (hashed, admin_email))
+        # Update password and ensure is_admin = 1
+        c.execute("UPDATE users SET password_hash = ?, is_admin = 1 WHERE email = ?", (hashed, admin_email))
     else:
         c.execute("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)",
                   (admin_email, hashed))
@@ -342,7 +342,8 @@ def get_user_subscription(user_id):
                 return {"name": free["name"], "max_rows": free["max_rows"], "features": free["features"], "plan_id": free["id"]}
             return None
 
-def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="manual"):
+def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="admin_manual"):
+    """Only call this from admin panel or after payment verification."""
     with get_db() as conn:
         c = conn.cursor()
         # Deactivate old subscriptions
@@ -352,7 +353,7 @@ def upgrade_subscription(user_id, plan_id, duration_months=1, payment_method="ma
         c.execute("INSERT INTO user_subscriptions (user_id, plan_id, start_date, end_date, is_active, payment_method) VALUES (?, ?, ?, ?, 1, ?)",
                   (user_id, plan_id, start, end, payment_method))
         conn.commit()
-        log_system_action("system", "subscription_upgrade", f"User {user_id} upgraded to plan {plan_id} for {duration_months} months")
+        log_system_action("system", "subscription_upgrade", f"User {user_id} upgraded to plan {plan_id} for {duration_months} months (method: {payment_method})")
         return True
 
 def get_all_subscriptions():
@@ -851,7 +852,7 @@ def login_section():
                     log_system_action(new_email, "register", "New user registered")
                 else:
                     st.error("⚠️ Email already exists.")
-        st.sidebar.info("💡 Guest mode: all analytics features available.")
+        st.sidebar.info("💡 Guest mode: limited features.")
         return False
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
@@ -1146,7 +1147,7 @@ def mega_admin_dashboard():
             st.dataframe(df_subs, use_container_width=True)
 
         st.markdown("---")
-        st.markdown("#### ✨ Manual Subscription Actions")
+        st.markdown("#### ✨ Manual Subscription Actions (Admin only)")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -1154,7 +1155,7 @@ def mega_admin_dashboard():
             plans = get_available_plans()
             plan_options = {p["name"]: p["id"] for p in plans}
             plan_name = st.selectbox("Select Plan", list(plan_options.keys()), key="sub_plan")
-            duration = st.selectbox("Duration", [1, 3, 6, 12], index=0, key="sub_duration")
+            duration = st.selectbox("Duration (months)", [1, 3, 6, 12], index=0, key="sub_duration")
             if st.button("Upgrade / Assign Plan", key="sub_upgrade_btn"):
                 if upgrade_subscription(user_id_upgrade, plan_options[plan_name], duration_months=duration, payment_method="admin_manual"):
                     st.success(f"User {user_id_upgrade} upgraded to {plan_name} for {duration} months.")
@@ -1276,12 +1277,12 @@ def mega_admin_dashboard():
         else:
             st.info("No platform analytics data yet.")
 
-# ========================== SUBSCRIPTION PLANS TAB ==========================
+# ========================== SUBSCRIPTION PLANS TAB (User View) ==========================
 def subscription_plans_tab():
     sec_header("PLANS", "Choose Your Plan", "Upgrade for full features")
     
     if not st.session_state.get("logged_in", False):
-        st.info("Please login to view and subscribe to plans.")
+        st.info("Please login to view your subscription.")
         return
     
     user_email = st.session_state["user_email"]
@@ -1308,19 +1309,25 @@ def subscription_plans_tab():
                 <p>✨ Features: {plan['features'][:100]}...</p>
             </div>
             """, unsafe_allow_html=True)
-            if plan['name'] != current_sub['name']:
-                if st.button(f"Subscribe to {plan['name']}", key=f"sub_{plan['id']}"):
-                    # Simulate payment
-                    with st.spinner("Redirecting to payment gateway..."):
-                        # In real app, integrate Stripe/PayPal. Here we simulate success.
-                        success = upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="simulated")
-                        if success:
-                            st.success(f"Successfully upgraded to {plan['name']}! Refresh to see changes.")
+            
+            # Only admin can upgrade users. Regular users see disabled button or message.
+            if st.session_state.get("is_admin", False):
+                if plan['name'] != current_sub['name']:
+                    if st.button(f"Assign {plan['name']} to User", key=f"admin_assign_{plan['id']}"):
+                        # Admin can assign directly
+                        if upgrade_subscription(user["id"], plan["id"], duration_months=1, payment_method="admin_manual"):
+                            st.success(f"Successfully assigned {plan['name']} to {user_email}.")
                             st.rerun()
                         else:
-                            st.error("Upgrade failed.")
+                            st.error("Assignment failed.")
+                else:
+                    st.button(f"Current Plan", disabled=True)
             else:
-                st.button(f"Current Plan", disabled=True)
+                # Regular user: cannot upgrade themselves
+                if plan['name'] != current_sub['name']:
+                    st.info("🔒 Upgrades are managed by admin. Please contact support.")
+                else:
+                    st.button(f"Current Plan", disabled=True)
 
 # ========================== ANALYTICS APP ==========================
 def render_analytics_app():
