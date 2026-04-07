@@ -671,6 +671,7 @@ html, body, [data-testid="stAppViewContainer"], .main {
 }
 
 /* ===== BUTTONS ===== */
+/* ابحث عن هذا الجزء في كودك وقم بتحديثه ليصبح هكذا */
 .stButton > button {
     background: linear-gradient(135deg, var(--accent-purple), #4f46e5) !important;
     color: white !important;
@@ -683,15 +684,14 @@ html, body, [data-testid="stAppViewContainer"], .main {
     transition: all 0.3s ease !important;
     box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3) !important;
     font-family: 'Space Grotesk', sans-serif !important;
-}
-.stButton > button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 8px 25px rgba(124, 58, 237, 0.5) !important;
-    opacity: 0.95 !important;
-}
-.stButton > button:active {
-    transform: translateY(0) !important;
-}
+    
+    /* الخصائص الجديدة لمنع التداخل */
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+}mportant;
+
 
 /* ===== INPUT FIELDS ===== */
 .stTextInput > div > div > input,
