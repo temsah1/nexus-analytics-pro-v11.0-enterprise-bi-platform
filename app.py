@@ -458,7 +458,7 @@ def set_setting(key, value):
         conn.commit()
         log_system_action("system", "update_setting", f"Updated {key}")
 
-# ========================== PAGE CONFIG WITH DARK MOBILE CSS ==========================
+# ========================== PAGE CONFIG WITH DARK BLUE (KOHLI) CSS ==========================
 st.set_page_config(
     page_title="NEXUS Analytics Pro",
     page_icon="🚀",
@@ -466,7 +466,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# DARK THEME HIGH CONTRAST CSS (including visible file uploader button)
+# DARK BLUE THEME - NO WHITE ELEMENTS
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -478,22 +478,22 @@ st.markdown("""
 }
 
 html, body, .stApp {
-    background: #0f172a !important;
+    background: #0a0f1c !important;
     font-family: 'Inter', sans-serif;
-    color: #f1f5f9 !important;
+    color: #e2e8f0 !important;
 }
 
 [data-testid="stSidebar"] {
-    background: #1e293b !important;
-    border-right: 1px solid #334155 !important;
+    background: #0f172a !important;
+    border-right: 1px solid #1e293b !important;
 }
 
 [data-testid="stSidebar"] * {
-    color: #f1f5f9 !important;
+    color: #e2e8f0 !important;
 }
 
 .main > div {
-    background: #0f172a;
+    background: #0a0f1c;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -501,24 +501,24 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
 }
 
+/* Metrics */
 [data-testid="stMetric"] {
-    background: #1e293b !important;
+    background: #0f172a !important;
     border-radius: 20px;
     padding: 1rem;
-    border: 1px solid #334155;
+    border: 1px solid #1e293b;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
-
 [data-testid="stMetric"] * {
-    color: #f1f5f9 !important;
+    color: #e2e8f0 !important;
 }
-
 [data-testid="stMetricValue"] {
     font-size: 1.8rem !important;
     font-weight: 800 !important;
     color: #38bdf8 !important;
 }
 
+/* Buttons */
 .stButton > button {
     background: linear-gradient(95deg, #8b5cf6, #06b6d4) !important;
     border: none !important;
@@ -529,88 +529,146 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: 0 4px 12px rgba(6,182,212,0.3);
     transition: all 0.25s ease;
 }
-
 .stButton > button:hover {
     transform: scale(1.02);
     background: linear-gradient(95deg, #7c3aed, #0891b2) !important;
     color: white !important;
 }
 
+/* Inputs */
 input, textarea, select, [data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] {
-    background-color: #1e293b !important;
-    color: #f1f5f9 !important;
-    border: 1px solid #475569 !important;
+    background-color: #0f172a !important;
+    color: #e2e8f0 !important;
+    border: 1px solid #334155 !important;
     border-radius: 12px !important;
     padding: 0.6rem !important;
 }
-
 input::placeholder, textarea::placeholder {
-    color: #94a3b8 !important;
+    color: #64748b !important;
 }
 
+/* Dataframes */
 .dataframe, .stDataFrame, [data-testid="stDataFrame"] {
-    background: #1e293b !important;
-    color: #f1f5f9 !important;
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
     border-radius: 12px;
     overflow-x: auto;
 }
-
 .dataframe th, .stDataFrame th {
-    background: #334155 !important;
-    color: #f1f5f9 !important;
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
     font-weight: 600;
 }
-
 .dataframe td, .stDataFrame td {
-    color: #e2e8f0 !important;
-    border-bottom: 1px solid #334155;
+    color: #cbd5e1 !important;
+    border-bottom: 1px solid #1e293b;
 }
 
+/* Expanders */
 .streamlit-expanderHeader {
-    background: #1e293b !important;
+    background: #0f172a !important;
     color: #38bdf8 !important;
     border-radius: 12px;
 }
-
 .streamlit-expanderContent {
-    background: #0f172a !important;
-    color: #f1f5f9 !important;
+    background: #0a0f1c !important;
+    color: #e2e8f0 !important;
 }
 
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     gap: 0.5rem;
-    background: #1e293b;
+    background: #0f172a;
     border-radius: 12px;
     padding: 0.5rem;
 }
-
 .stTabs [data-baseweb="tab"] {
-    background: #334155 !important;
+    background: #1e293b !important;
     border-radius: 30px !important;
     padding: 0.5rem 1rem !important;
-    color: #f1f5f9 !important;
+    color: #e2e8f0 !important;
     font-weight: 500;
 }
-
 .stTabs [aria-selected="true"] {
     background: linear-gradient(135deg, #8b5cf6, #06b6d4) !important;
     color: white !important;
 }
 
+/* Alerts - make them dark blue */
+.stAlert {
+    background: #0f172a !important;
+    border-left: 4px solid #38bdf8 !important;
+    color: #e2e8f0 !important;
+}
+.stAlert p {
+    color: #e2e8f0 !important;
+}
+[data-testid="stNotification"] {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+}
+.element-container div[data-testid="stNotification"] {
+    background: #0f172a !important;
+}
+
+/* Success/Warning/Error/Info boxes */
+div[data-testid="stStatusWidget"] {
+    background: #0f172a !important;
+}
+.stSuccess, .stInfo, .stWarning, .stError {
+    background-color: #0f172a !important;
+    color: #e2e8f0 !important;
+    border-radius: 12px;
+    border-left: 4px solid;
+}
+.stSuccess { border-left-color: #10b981 !important; }
+.stInfo { border-left-color: #3b82f6 !important; }
+.stWarning { border-left-color: #f59e0b !important; }
+.stError { border-left-color: #ef4444 !important; }
+
+/* Popovers & menus */
+[data-baseweb="popover"] {
+    background: #0f172a !important;
+    border: 1px solid #334155;
+}
+[data-baseweb="menu"] div {
+    color: #e2e8f0 !important;
+    background: #0f172a !important;
+}
+[data-baseweb="menu"] div:hover {
+    background: #1e293b !important;
+}
+
+/* File uploader button (visible) */
+div[data-testid="stFileUploader"] button {
+    background: linear-gradient(95deg, #10b981, #06b6d4) !important;
+    border: 1px solid #34d399 !important;
+    color: white !important;
+    font-weight: bold !important;
+    border-radius: 40px !important;
+    padding: 0.5rem 1rem !important;
+    box-shadow: 0 0 8px rgba(6,182,212,0.5) !important;
+}
+div[data-testid="stFileUploader"] button:hover {
+    background: linear-gradient(95deg, #059669, #0891b2) !important;
+    transform: scale(1.02);
+}
+div[data-testid="stFileUploader"] span {
+    color: white !important;
+}
+
+/* Chat messages */
 .chat-message {
     display: flex;
     gap: 12px;
     margin: 16px 0;
 }
-
 .chat-message.user {
     justify-content: flex-end;
 }
-
 .chat-message.assistant {
     justify-content: flex-start;
 }
-
 .chat-bubble {
     max-width: 75%;
     padding: 12px 16px;
@@ -619,20 +677,17 @@ input::placeholder, textarea::placeholder {
     line-height: 1.5;
     word-wrap: break-word;
 }
-
 .user .chat-bubble {
     background: linear-gradient(135deg, #8b5cf6, #06b6d4);
     color: white;
     border-bottom-right-radius: 4px;
 }
-
 .assistant .chat-bubble {
-    background: #1e293b;
-    border: 1px solid #475569;
-    color: #f1f5f9;
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e2e8f0;
     border-bottom-left-radius: 4px;
 }
-
 .avatar {
     width: 32px;
     height: 32px;
@@ -643,64 +698,61 @@ input::placeholder, textarea::placeholder {
     font-weight: bold;
     flex-shrink: 0;
 }
-
 .user .avatar {
     background: #8b5cf6;
     color: white;
     order: 1;
 }
-
 .assistant .avatar {
     background: #06b6d4;
     color: white;
 }
 
-.stAlert {
+/* Plotly charts background forced to dark */
+.js-plotly-plot, .plotly, .plotly .main-svg, .plotly .bg {
+    background: #0a0f1c !important;
+}
+.plotly .gridlayer line, .plotly .xaxislayer-above line, .plotly .yaxislayer-above line {
+    stroke: #334155 !important;
+}
+.plotly .xtick, .plotly .ytick {
+    color: #94a3b8 !important;
+}
+
+/* Code */
+code {
     background: #1e293b !important;
-    border-left: 4px solid #38bdf8 !important;
-    color: #f1f5f9 !important;
+    color: #facc15 !important;
+    padding: 0.2rem 0.4rem;
+    border-radius: 8px;
 }
 
-.stAlert p {
-    color: #f1f5f9 !important;
+/* Headers */
+.nx-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 1rem 0 1.2rem;
+    flex-wrap: wrap;
+}
+.nx-tag {
+    background: linear-gradient(95deg, #8b5cf6, #06b6d4);
+    color: white;
+    border-radius: 60px;
+    padding: 0.2rem 0.8rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.nx-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #38bdf8, #8b5cf6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
 }
 
-[data-baseweb="popover"] {
-    background: #1e293b !important;
-    border: 1px solid #475569;
-}
-
-[data-baseweb="menu"] div {
-    color: #f1f5f9 !important;
-    background: #1e293b !important;
-}
-
-[data-baseweb="menu"] div:hover {
-    background: #334155 !important;
-}
-
-/* ========== FIX: VISIBLE FILE UPLOAD BUTTON ========== */
-div[data-testid="stFileUploader"] button {
-    background: linear-gradient(95deg, #10b981, #06b6d4) !important;
-    border: 1px solid #34d399 !important;
-    color: white !important;
-    font-weight: bold !important;
-    border-radius: 40px !important;
-    padding: 0.5rem 1rem !important;
-    box-shadow: 0 0 8px rgba(6,182,212,0.5) !important;
-}
-
-div[data-testid="stFileUploader"] button:hover {
-    background: linear-gradient(95deg, #059669, #0891b2) !important;
-    transform: scale(1.02);
-}
-
-div[data-testid="stFileUploader"] span {
-    color: white !important;
-}
-
-/* ==================================================== */
-
+/* Responsive */
 @media (max-width: 768px) {
     .stColumns {
         flex-direction: column !important;
@@ -745,61 +797,6 @@ div[data-testid="stFileUploader"] span {
         height: 28px !important;
         font-size: 0.8rem !important;
     }
-}
-
-.nx-header {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    margin: 1rem 0 1.2rem;
-    flex-wrap: wrap;
-}
-
-.nx-tag {
-    background: linear-gradient(95deg, #8b5cf6, #06b6d4);
-    color: white;
-    border-radius: 60px;
-    padding: 0.2rem 0.8rem;
-    font-size: 0.7rem;
-    font-weight: 600;
-}
-
-.nx-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #38bdf8, #8b5cf6);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-}
-
-.insight-box {
-    background: #1e293b;
-    border-left: 5px solid #8b5cf6;
-    border-radius: 20px;
-    padding: 1rem 1.2rem;
-    margin: 1rem 0;
-    color: #f1f5f9;
-}
-
-.admin-kpi-card {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 20px;
-    padding: 1.5rem;
-    text-align: center;
-    margin-bottom: 1rem;
-}
-
-.js-plotly-plot, .plotly, .plotly .main-svg {
-    background: #1e293b !important;
-}
-
-code {
-    background: #334155 !important;
-    color: #facc15 !important;
-    padding: 0.2rem 0.4rem;
-    border-radius: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1085,17 +1082,15 @@ def detect_column_types(df):
         if pd.api.types.is_datetime64_any_dtype(s):
             roles["date"].append(col)
         elif s.dtype == object:
-            sample = s.dropna().head(1000)  # larger sample for better detection
+            sample = s.dropna().head(1000)
             if len(sample) > 0:
-                # Try to convert to datetime
                 try:
                     converted = pd.to_datetime(sample, errors='coerce')
-                    if converted.notna().mean() > 0.8:  # if more than 80% become valid dates
+                    if converted.notna().mean() > 0.8:
                         roles["date"].append(col)
                         continue
                 except:
                     pass
-                # If not date, check cardinality for categorical
                 if s.nunique() < 50:
                     roles["categorical"].append(col)
                 else:
@@ -1470,7 +1465,7 @@ def mega_admin_dashboard():
         return
 
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #1e293b 0%, #4f46e5 50%, #06b6d4 100%);
+    <div style="background: linear-gradient(135deg, #0f172a 0%, #4f46e5 50%, #06b6d4 100%);
          border-radius: 24px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;">
         <h1 style="color: white; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.5rem;">
             🛡️ NEXUS Admin Control Center
@@ -1764,11 +1759,11 @@ def subscription_plans_tab():
     for idx, plan in enumerate(plans):
         with cols[idx]:
             st.markdown(f"""
-            <div style="background: #1e293b; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; margin-bottom: 1rem; border: 1px solid #334155;">
+            <div style="background: #0f172a; border-radius: 20px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; margin-bottom: 1rem; border: 1px solid #1e293b;">
                 <h3 style="margin-bottom: 0.5rem; color: #38bdf8;">{plan['name']}</h3>
                 <p style="font-size: 1.5rem; font-weight: 800; color: #8b5cf6;">${plan['price_monthly']:.2f}<span style="font-size: 0.9rem;">/month</span></p>
                 <p style="font-size: 0.8rem;">or ${plan['price_yearly']:.2f}/year</p>
-                <hr style="border-color: #334155;">
+                <hr style="border-color: #1e293b;">
                 <p>📊 Max rows: {plan['max_rows']:,}</p>
                 <p>✨ {plan['features'][:80]}...</p>
             </div>
@@ -1852,7 +1847,7 @@ def render_analytics_app():
                         if len(df_new) > max_allowed:
                             st.error(f"Dataset has {len(df_new):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use smaller file.")
                         else:
-                            # Enhanced date detection: force conversion on all object columns
+                            # Enhanced date detection
                             for col in df_new.columns:
                                 if df_new[col].dtype == object:
                                     try:
@@ -1894,9 +1889,8 @@ def render_analytics_app():
             st.markdown("---")
             st.markdown("### 🗂️ Column Mapping")
             roles = st.session_state["roles"]
-            # Include all columns in date dropdown (manual override)
             all_columns = ["—"] + list(df.columns)
-            date_c = all_columns  # allow any column to be selected as date
+            date_c = all_columns
             num_c = ["—"] + roles["numeric"]
             cat_c = ["—"] + roles["categorical"] + [c for c in df.columns if c not in roles["date"] and c not in roles["numeric"]]
             id_c = ["—"] + roles["id"] + roles["categorical"]
@@ -1967,13 +1961,13 @@ def render_analytics_app():
             if date_col != "—" and date_col in df.columns:
                 col1, col2 = st.columns(2)
                 with col1:
-                    # Ensure date is datetime
                     df_ts = df.copy()
                     df_ts[date_col] = pd.to_datetime(df_ts[date_col], errors='coerce')
                     df_ts = df_ts.dropna(subset=[date_col])
                     if not df_ts.empty:
                         df_ts = df_ts.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
                         fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
+                        fig.update_layout(template="plotly_dark")
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning("No valid dates for time series.")
@@ -1981,6 +1975,7 @@ def render_analytics_app():
                     if cat_col != "—" and cat_col in df.columns:
                         cat_sales = df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(sales_col, ascending=False)
                         fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category")
+                        fig2.update_layout(template="plotly_dark")
                         st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Map a Sales column in sidebar.")
@@ -2003,7 +1998,6 @@ def render_analytics_app():
                 if st.button("Run Forecast"):
                     with st.spinner("Building forecast..."):
                         try:
-                            # Ensure date is datetime
                             date_series = pd.to_datetime(df[date_col], errors='coerce')
                             date_json = date_series.dropna().astype(str).to_json()
                             val_json = df.loc[date_series.notna(), sales_col].to_json()
@@ -2048,10 +2042,12 @@ def render_analytics_app():
                             with col1:
                                 imp_df = pd.Series(imp).sort_values(ascending=True)
                                 fig = px.bar(imp_df, orientation="h", title="Feature Importance")
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                             with col2:
                                 perm_df = pd.Series(perm_imp).sort_values(ascending=True)
                                 fig2 = px.bar(perm_df, orientation="h", title="Permutation Importance")
+                                fig2.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig2, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -2075,9 +2071,11 @@ def render_analytics_app():
                         with col1:
                             seg_counts = rfm["Segment"].value_counts()
                             fig = px.pie(seg_counts, names=seg_counts.index, values=seg_counts.values, title="Segments")
+                            fig.update_layout(template="plotly_dark")
                             st.plotly_chart(fig, use_container_width=True)
                         with col2:
                             fig2 = px.scatter(rfm, x="Frequency", y="Monetary", color="Segment", size="RFM_Score", title="RFM Scatter")
+                            fig2.update_layout(template="plotly_dark")
                             st.plotly_chart(fig2, use_container_width=True)
                     else:
                         st.warning("RFM failed.")
@@ -2111,9 +2109,11 @@ def render_analytics_app():
                                 fig = px.scatter(x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
                                                  title=f"PCA Projection - {method.upper()}",
                                                  labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"})
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                                 if inertias:
                                     fig2 = px.line(x=list(inertias.keys()), y=list(inertias.values()), markers=True, title="Elbow Method")
+                                    fig2.update_layout(template="plotly_dark")
                                     st.plotly_chart(fig2, use_container_width=True)
                         except Exception as e:
                             st.error(f"Error: {e}")
@@ -2145,6 +2145,7 @@ def render_analytics_app():
                                 st.success(f"Found {len(rules_filtered)} rules.")
                                 st.dataframe(rules_filtered[["antecedents", "consequents", "support", "confidence", "lift"]].sort_values("lift", ascending=False), use_container_width=True)
                                 fig = px.scatter(rules_filtered, x="support", y="confidence", color="lift", size="lift", title="Support vs Confidence")
+                                fig.update_layout(template="plotly_dark")
                                 st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.info(msg)
@@ -2185,6 +2186,7 @@ def render_analytics_app():
                         if n_anom > 0 and len(feat_anom) >= 2:
                             fig = px.scatter(x=clean_df.iloc[:,0], y=clean_df.iloc[:,1], color=np.where(anomalies, "Anomaly", "Normal"),
                                              title="Anomaly Visualization", color_discrete_map={"Anomaly":"#ef4444","Normal":"#10b981"})
+                            fig.update_layout(template="plotly_dark")
                             st.plotly_chart(fig, use_container_width=True)
                         if n_anom > 0:
                             clean_idx = clean_df.index
