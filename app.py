@@ -53,7 +53,7 @@ except ImportError:
 # ========================== CONFIGURATION ==========================
 MAX_FILE_SIZE_MB = 1000
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-GUEST_MAX_ROWS = 1000  # Guest users have the same limit as Free plan
+GUEST_MAX_ROWS = 1000
 
 CONFIG_DIR = Path(".streamlit")
 CONFIG_FILE = CONFIG_DIR / "config.toml"
@@ -154,7 +154,6 @@ def init_db():
         ]
         c.executemany("INSERT INTO subscription_plans (name, price_monthly, price_yearly, max_rows, features, is_active) VALUES (?,?,?,?,?,?)", plans)
     
-    # AI settings defaults
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('deepseek_api_key', '')")
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('groq_api_key', '')")
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('ai_provider', 'deepseek')")
@@ -467,7 +466,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ================== DARK THEME CSS ==================
+# ================== DARK THEME CSS (محسّن) ==================
 st.markdown("""
 <style>
 /* Global dark background */
@@ -562,23 +561,56 @@ html, body, [data-testid="stAppViewContainer"] {
     color: white;
 }
 
-/* Plotly charts - background override */
-.js-plotly-plot .plotly .main-svg {
-    background-color: #1e293b !important;
-}
-.js-plotly-plot .plotly .bg {
-    fill: #1e293b !important;
-}
-
-/* Metrics and other text */
+/* Metrics text */
 [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
     color: #f1f5f9 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Set default Plotly template to dark
-pio.templates.default = "plotly_dark"
+# ========== إعدادات مخصصة للمخططات البيانية (وضوح عالي) ==========
+# تعريف تنسيق مخصص للمخططات يجمع بين dark وتباين عالٍ
+custom_dark_template = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor='#1e293b',   # خلفية الرسم البياني
+        plot_bgcolor='#1e293b',
+        font=dict(color='#f1f5f9', size=12),
+        title_font=dict(size=16, color='#f1f5f9'),
+        xaxis=dict(
+            title_font=dict(size=13, color='#cbd5e1'),
+            tickfont=dict(size=11, color='#cbd5e1'),
+            gridcolor='#334155',
+            linecolor='#475569',
+            zerolinecolor='#475569'
+        ),
+        yaxis=dict(
+            title_font=dict(size=13, color='#cbd5e1'),
+            tickfont=dict(size=11, color='#cbd5e1'),
+            gridcolor='#334155',
+            linecolor='#475569',
+            zerolinecolor='#475569'
+        ),
+        legend=dict(
+            font=dict(size=12, color='#f1f5f9'),
+            bgcolor='rgba(0,0,0,0)',
+            bordercolor='#475569'
+        ),
+        hoverlabel=dict(bgcolor='#0f172a', font_size=12, font_color='#f1f5f9'),
+        colorway=['#f97316', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#06b6d4', '#eab308', '#ec4899']  # ألوان زاهية
+    )
+)
+
+# دالة مساعدة لتطبيق التنسيق على أي مخطط
+def apply_plot_style(fig):
+    fig.update_layout(template=custom_dark_template)
+    # إضافة شبكة خفيفة
+    fig.update_xaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+    fig.update_yaxis(showgrid=True, gridwidth=0.5, gridcolor='#334155')
+    return fig
+
+# تعيين القالب الافتراضي لـ plotly express أيضاً
+pio.templates["custom_dark"] = custom_dark_template
+pio.templates.default = "custom_dark"
 
 # ========================== HELPER FUNCTIONS ==========================
 def sec_header(tag, title, sub=""):
@@ -604,7 +636,7 @@ def fmt_num(n, prefix="", suffix="", decimals=1):
     except Exception:
         return "N/A"
 
-# ========================== AI API FUNCTIONS (DEEPSEEK + GROQ + CUSTOM) ==========================
+# ========================== AI API FUNCTIONS ==========================
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -678,18 +710,15 @@ def call_custom_ai_api(messages, api_url, api_key, model, max_tokens=2000, tempe
         return None, f"Custom AI Exception: {str(e)}"
 
 def get_ai_response(messages, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, max_tokens=2000, temperature=0.7):
-    """Try provider first, fallback to others if available."""
     if provider == "deepseek":
         response, error = call_deepseek_api(messages, deepseek_key, max_tokens, temperature)
         if response:
             return response, None
-        # Fallback to groq if available
         if groq_key:
             response2, error2 = call_groq_api(messages, groq_key, max_tokens, temperature)
             if response2:
                 return response2, None
             return None, f"DeepSeek failed: {error}. Groq failed: {error2}"
-        # Fallback to custom if enabled
         if custom_url and custom_key:
             response3, error3 = call_custom_ai_api(messages, custom_url, custom_key, custom_model, max_tokens, temperature)
             if response3:
@@ -773,7 +802,7 @@ First 5 rows of data:
     return context
 
 def get_chatbot_response(user_message, provider, deepseek_key, groq_key, custom_url, custom_key, custom_model, chat_history, df=None):
-    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. ..."""  # (same as original)
+    system_prompt = """You are NEXUS AI, an intelligent assistant integrated into the NEXUS Analytics Pro platform. ..."""
     
     messages = [{"role": "system", "content": system_prompt}]
     for msg in chat_history[-20:]:
@@ -947,9 +976,7 @@ def build_forecast(date_series_json, value_series_json, horizon=90, freq='ME'):
     value_series = pd.Series(pd.read_json(io.StringIO(value_series_json), typ='series'))
 
     df = pd.DataFrame({"ds": pd.to_datetime(date_series), "y": value_series.values})
-    # Convert freq: 'ME' -> 'M' for Prophet, else 'W'
     period_key = 'M' if freq == 'ME' else 'W'
-    # Group by period and convert to timestamp
     df['period'] = df['ds'].dt.to_period(period_key)
     ts = df.groupby('period')['y'].sum().reset_index()
     ts['ds'] = ts['period'].dt.to_timestamp()
@@ -959,7 +986,6 @@ def build_forecast(date_series_json, value_series_json, horizon=90, freq='ME'):
         try:
             model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq == 'W'), daily_seasonality=False)
             model.fit(ts)
-            # Prophet uses 'M' for monthly
             prophet_freq = 'M' if freq == 'ME' else 'W'
             future = model.make_future_dataframe(periods=horizon, freq=prophet_freq)
             forecast = model.predict(future)
@@ -1156,10 +1182,6 @@ def chatbot_tab():
     custom_model = get_setting("custom_ai_model")
     custom_enabled = get_setting("custom_ai_enabled") == "1"
 
-    if custom_enabled and provider == "custom":
-        # Override provider to custom if enabled
-        pass
-
     st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
         <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #8b5cf6, #06b6d4); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 28px;">🚀</div>
@@ -1209,7 +1231,6 @@ def chatbot_tab():
         
         current_df = st.session_state.get("df", None)
         
-        # Check if any API key is configured
         has_key = (provider == "deepseek" and deepseek_key) or \
                   (provider == "groq" and groq_key) or \
                   (provider == "custom" and custom_enabled and custom_key)
@@ -1238,7 +1259,6 @@ def chatbot_tab():
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
-    # Ensure only admin can see this (already checked in main, but double-check)
     if not st.session_state.get("is_admin", False):
         st.error("Access denied. Admins only.")
         return
@@ -1275,7 +1295,6 @@ def mega_admin_dashboard():
         "📊 Overview", "👤 Users", "📋 Logs", "📋 Subs", "💰 Plans", "⚙️ Settings", "📈 Analytics"
     ])
 
-    # ---------- Overview (unchanged) ----------
     with admin_tabs[0]:
         sec_header("OVERVIEW", "Platform Health", "Real-time insights")
         logs = get_login_logs(limit=500)
@@ -1289,19 +1308,18 @@ def mega_admin_dashboard():
                 login_counts["status"] = login_counts["success"].map({1: "✅ Success", 0: "❌ Failed"})
                 fig = px.area(login_counts, x="date", y="count", color="status", title="Login Activity",
                               color_discrete_map={"✅ Success": "#10b981", "❌ Failed": "#ef4444"})
-                fig.update_layout(height=350, template="plotly_dark")
+                fig = apply_plot_style(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 success_rate = df_logs["success"].sum() / len(df_logs) * 100 if len(df_logs) > 0 else 0
                 fig3 = go.Figure(go.Indicator(mode="gauge+number", value=round(success_rate, 1),
                                               title={"text": "Login Success Rate (%)"},
                                               gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#8b5cf6"}}))
-                fig3.update_layout(height=300, template="plotly_dark")
+                fig3 = apply_plot_style(fig3)
                 st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No login data yet.")
 
-    # ---------- User Management (unchanged) ----------
     with admin_tabs[1]:
         sec_header("USERS", "User Management", "Create · Edit · Delete · Promote")
         users = get_all_users()
@@ -1362,7 +1380,6 @@ def mega_admin_dashboard():
                 else:
                     st.error("Fill all fields.")
 
-    # ---------- Activity Logs (unchanged) ----------
     with admin_tabs[2]:
         sec_header("LOGS", "Activity Logs", "Audit trail")
         col1, col2 = st.columns(2)
@@ -1378,7 +1395,6 @@ def mega_admin_dashboard():
                 df_sys = pd.DataFrame(sys_logs, columns=["User", "Action", "Details", "Timestamp"])
                 st.dataframe(df_sys, use_container_width=True, height=400)
 
-    # ---------- Subscription Management (unchanged) ----------
     with admin_tabs[3]:
         sec_header("SUBSCRIPTIONS", "Manage User Plans", "Upgrade, downgrade, extend")
         subs = get_all_subscriptions()
@@ -1419,7 +1435,6 @@ def mega_admin_dashboard():
         for plan, cnt in plan_counts.items():
             st.write(f"- {plan}: {cnt} users")
 
-    # ---------- Plan Management (unchanged) ----------
     with admin_tabs[4]:
         sec_header("PLANS", "Edit Subscription Plans", "Prices, limits, features")
         all_plans = get_all_plans()
@@ -1434,7 +1449,6 @@ def mega_admin_dashboard():
                     st.success(f"{plan['name']} updated.")
                     st.rerun()
 
-    # ---------- System Settings (AI Keys + Custom AI) ----------
     with admin_tabs[5]:
         sec_header("SETTINGS", "System Configuration", "API Keys & Limits (Admin only)")
         
@@ -1442,21 +1456,17 @@ def mega_admin_dashboard():
         current_provider = get_setting("ai_provider", "deepseek")
         custom_enabled = get_setting("custom_ai_enabled") == "1"
         
-        # Show provider options
         provider_options = ["deepseek", "groq"]
         if custom_enabled:
             provider_options.append("custom")
         provider_choice = st.selectbox("Primary AI Provider", provider_options, index=provider_options.index(current_provider) if current_provider in provider_options else 0)
         
-        # DeepSeek settings
         current_deepseek = get_setting("deepseek_api_key")
         new_deepseek = st.text_input("DeepSeek API Key", type="password", value=current_deepseek, key="ds_key")
         
-        # Groq settings
         current_groq = get_setting("groq_api_key")
         new_groq = st.text_input("Groq API Key (free tier)", type="password", value=current_groq, key="groq_key")
         
-        # Custom AI (OpenAI-compatible) settings
         st.markdown("---")
         st.markdown("#### 🔌 Custom AI (OpenAI-compatible)")
         enable_custom = st.checkbox("Enable Custom AI", value=custom_enabled)
@@ -1498,7 +1508,6 @@ def mega_admin_dashboard():
         db_size = os.path.getsize(DB_PATH) / (1024 * 1024) if os.path.exists(DB_PATH) else 0
         st.metric("Database Size", f"{db_size:.3f} MB")
 
-    # ---------- Platform Analytics (unchanged) ----------
     with admin_tabs[6]:
         sec_header("ANALYTICS", "Platform Usage", "User behavior insights")
         sys_logs = get_system_logs(limit=500)
@@ -1511,16 +1520,16 @@ def mega_admin_dashboard():
                 action_counts = df_sys["Action"].value_counts().reset_index()
                 action_counts.columns = ["Action", "Count"]
                 fig = px.pie(action_counts, names="Action", values="Count", title="Action Distribution")
-                fig.update_layout(template="plotly_dark")
+                fig = apply_plot_style(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 daily = df_sys.groupby("date").size().reset_index(name="actions")
                 fig2 = px.bar(daily, x="date", y="actions", title="Daily Activity")
-                fig2.update_layout(template="plotly_dark")
+                fig2 = apply_plot_style(fig2)
                 st.plotly_chart(fig2, use_container_width=True)
             top_users = df_sys.groupby("User").size().reset_index(name="actions").sort_values("actions", ascending=False).head(10)
             fig3 = px.bar(top_users, x="User", y="actions", title="Most Active Users")
-            fig3.update_layout(template="plotly_dark")
+            fig3 = apply_plot_style(fig3)
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No analytics data yet.")
@@ -1629,7 +1638,6 @@ def render_analytics_app():
                         else:
                             df_new = pd.read_excel(uploaded)
                         progress_bar.progress(100)
-                        # Enforce row limit based on plan or guest
                         max_allowed = user_plan['max_rows'] if user_plan else GUEST_MAX_ROWS
                         if len(df_new) > max_allowed:
                             st.error(f"Dataset has {len(df_new):,} rows, but your plan allows only {max_allowed:,}. Upgrade or use smaller file.")
@@ -1739,13 +1747,13 @@ def render_analytics_app():
                 with col1:
                     df_ts = df.set_index(date_col).resample('ME')[sales_col].sum().reset_index()
                     fig = px.line(df_ts, x=date_col, y=sales_col, title="Monthly Sales", markers=True)
-                    fig.update_layout(template="plotly_dark")
+                    fig = apply_plot_style(fig)
                     st.plotly_chart(fig, use_container_width=True)
                 with col2:
                     if cat_col != "—" and cat_col in df.columns:
                         cat_sales = df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(sales_col, ascending=False)
                         fig2 = px.bar(cat_sales, x=cat_col, y=sales_col, title="Sales by Category")
-                        fig2.update_layout(template="plotly_dark")
+                        fig2 = apply_plot_style(fig2)
                         st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Map a Sales column in sidebar.")
@@ -1775,11 +1783,11 @@ def render_analytics_app():
                                 st.error("Failed to build forecast. Install statsmodels or prophet.")
                             else:
                                 fig = go.Figure()
-                                fig.add_trace(go.Scatter(x=hist["Date"], y=hist["Value"], name="Historical", line=dict(color="#06b6d4")))
+                                fig.add_trace(go.Scatter(x=hist["Date"], y=hist["Value"], name="Historical", line=dict(color="#06b6d4", width=2)))
                                 fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Upper"], fill=None, line=dict(color="rgba(0,0,0,0)"), showlegend=False))
-                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence", fillcolor="rgba(139,92,246,0.15)", line=dict(color="rgba(0,0,0,0)")))
-                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f59e0b", dash="dash")))
-                                fig.update_layout(height=500, template="plotly_dark")
+                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Lower"], fill="tonexty", name="Confidence", fillcolor="rgba(139,92,246,0.2)", line=dict(color="rgba(0,0,0,0)")))
+                                fig.add_trace(go.Scatter(x=fcast["Date"], y=fcast["Value"], name=f"Forecast ({model_name})", line=dict(color="#f59e0b", width=2, dash="dash")))
+                                fig = apply_plot_style(fig)
                                 st.plotly_chart(fig, use_container_width=True)
                                 st.dataframe(fcast.round(2), use_container_width=True)
                         except Exception as e:
@@ -1811,12 +1819,12 @@ def render_analytics_app():
                             with col1:
                                 imp_df = pd.Series(imp).sort_values(ascending=True)
                                 fig = px.bar(imp_df, orientation="h", title="Feature Importance")
-                                fig.update_layout(template="plotly_dark")
+                                fig = apply_plot_style(fig)
                                 st.plotly_chart(fig, use_container_width=True)
                             with col2:
                                 perm_df = pd.Series(perm_imp).sort_values(ascending=True)
                                 fig2 = px.bar(perm_df, orientation="h", title="Permutation Importance")
-                                fig2.update_layout(template="plotly_dark")
+                                fig2 = apply_plot_style(fig2)
                                 st.plotly_chart(fig2, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -1840,11 +1848,11 @@ def render_analytics_app():
                         with col1:
                             seg_counts = rfm["Segment"].value_counts()
                             fig = px.pie(seg_counts, names=seg_counts.index, values=seg_counts.values, title="Segments")
-                            fig.update_layout(template="plotly_dark")
+                            fig = apply_plot_style(fig)
                             st.plotly_chart(fig, use_container_width=True)
                         with col2:
                             fig2 = px.scatter(rfm, x="Frequency", y="Monetary", color="Segment", size="RFM_Score", title="RFM Scatter")
-                            fig2.update_layout(template="plotly_dark")
+                            fig2 = apply_plot_style(fig2)
                             st.plotly_chart(fig2, use_container_width=True)
                     else:
                         st.warning("RFM failed.")
@@ -1878,11 +1886,11 @@ def render_analytics_app():
                                 fig = px.scatter(x=coords[:, 0], y=coords[:, 1], color=labels.astype(str),
                                                  title=f"PCA Projection - {method.upper()}",
                                                  labels={"x": f"PC1 ({var[0]*100:.1f}%)", "y": f"PC2 ({var[1]*100:.1f}%)"})
-                                fig.update_layout(template="plotly_dark")
+                                fig = apply_plot_style(fig)
                                 st.plotly_chart(fig, use_container_width=True)
                                 if inertias:
                                     fig2 = px.line(x=list(inertias.keys()), y=list(inertias.values()), markers=True, title="Elbow Method")
-                                    fig2.update_layout(template="plotly_dark")
+                                    fig2 = apply_plot_style(fig2)
                                     st.plotly_chart(fig2, use_container_width=True)
                         except Exception as e:
                             st.error(f"Error: {e}")
@@ -1914,7 +1922,7 @@ def render_analytics_app():
                                 st.success(f"Found {len(rules_filtered)} rules.")
                                 st.dataframe(rules_filtered[["antecedents", "consequents", "support", "confidence", "lift"]].sort_values("lift", ascending=False), use_container_width=True)
                                 fig = px.scatter(rules_filtered, x="support", y="confidence", color="lift", size="lift", title="Support vs Confidence")
-                                fig.update_layout(template="plotly_dark")
+                                fig = apply_plot_style(fig)
                                 st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.info(msg)
@@ -1932,11 +1940,11 @@ def render_analytics_app():
             if len(num_cols) >= 2:
                 corr = df[num_cols].corr()
                 fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", title="Correlation Matrix", aspect="auto")
-                fig.update_layout(height=500, template="plotly_dark")
+                fig = apply_plot_style(fig)
                 st.plotly_chart(fig, use_container_width=True)
                 top4 = num_cols[:min(4, len(num_cols))]
                 fig2 = px.scatter_matrix(df[top4].dropna().sample(min(500, len(df))), title="Scatter Matrix")
-                fig2.update_layout(height=600, template="plotly_dark")
+                fig2 = apply_plot_style(fig2)
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("Need 2+ numeric columns.")
@@ -1955,7 +1963,7 @@ def render_analytics_app():
                         if n_anom > 0 and len(feat_anom) >= 2:
                             fig = px.scatter(x=clean_df.iloc[:,0], y=clean_df.iloc[:,1], color=np.where(anomalies, "Anomaly", "Normal"),
                                              title="Anomaly Visualization", color_discrete_map={"Anomaly":"#ef4444","Normal":"#10b981"})
-                            fig.update_layout(template="plotly_dark")
+                            fig = apply_plot_style(fig)
                             st.plotly_chart(fig, use_container_width=True)
                         if n_anom > 0:
                             clean_idx = clean_df.index
