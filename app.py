@@ -1,5 +1,3 @@
-
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -190,7 +188,6 @@ def toggle_admin(user_id, make_admin):
         c = conn.cursor()
         c.execute("UPDATE users SET is_admin = ? WHERE id = ?", (1 if make_admin else 0, user_id))
         conn.commit()
-        # Log action
         user = get_user_by_id(user_id)
         if user:
             log_system_action("system", "toggle_admin", f"User {user['email']} admin status set to {make_admin}")
@@ -218,7 +215,6 @@ def add_admin_by_email(email):
             log_system_action("system", "promote_to_admin", f"Promoted user {email} to admin")
             return True, f"User {email} is now admin."
         else:
-            # Create new user with random password? Better to ask to register first
             return False, f"User {email} not found. Please ask them to register first."
 
 def reset_user_password(user_id, new_password):
@@ -269,7 +265,7 @@ def get_stats():
 # ========================== PAGE CONFIG (ULTRA MODERN UI) ==========================
 st.set_page_config(page_title="NEXUS Analytics Pro", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
-# Enhanced CSS (same as before, abbreviated for length but fully functional)
+# Enhanced CSS
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap');
@@ -311,7 +307,7 @@ def fmt_num(n, prefix="", suffix="", decimals=1):
     if abs(n) >= 1e3: return f"{prefix}{n/1e3:.{decimals}f}K{suffix}"
     return f"{prefix}{n:.{decimals}f}{suffix}"
 
-# -------------------- Data Loading & Cleaning (same as before) --------------------
+# -------------------- Data Loading & Cleaning --------------------
 @st.cache_data(show_spinner=False)
 def load_builtin_dataset():
     np.random.seed(99)
@@ -370,7 +366,7 @@ def smart_clean(df, roles):
         df[col].fillna(mode_val.iloc[0] if not mode_val.empty else "Unknown", inplace=True)
     return df
 
-# -------------------- ML Functions (abbreviated but fully functional) --------------------
+# -------------------- ML Functions --------------------
 @st.cache_resource(show_spinner=False)
 def train_ml_ensemble(df_json, target_col, feature_cols):
     df = pd.read_json(io.StringIO(df_json))
@@ -415,22 +411,24 @@ def train_ml_ensemble(df_json, target_col, feature_cols):
     return ensemble, le_map, scaler, cv_r2, cv_mape, importances, perm_imp, list(X.columns)
 
 @st.cache_data(show_spinner=False)
-def build_forecast_prophet(date_series, value_series, horizon=90, freq='M'):
+def build_forecast_prophet(date_series, value_series, horizon=90, freq='ME'):
     df = pd.DataFrame({"ds": pd.to_datetime(date_series), "y": value_series.values})
-    if freq == 'M':
+    if freq == 'ME':
         ts = df.groupby(df["ds"].dt.to_period("M").dt.start_time)["y"].sum().reset_index()
         ts.columns = ["ds","y"]
+        freq_key = 'M'
     else:
         ts = df.groupby(df["ds"].dt.to_period("W").dt.start_time)["y"].sum().reset_index()
         ts.columns = ["ds","y"]
+        freq_key = 'W'
     ts = ts.sort_values("ds").reset_index(drop=True)
     if PROPHET_AVAILABLE and len(ts) > 10:
-        model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq=='W'), daily_seasonality=False)
+        model = Prophet(yearly_seasonality=True, weekly_seasonality=(freq_key=='W'), daily_seasonality=False)
         model.fit(ts)
-future = model.make_future_dataframe(periods=horizon, freq=freq_key)      
-forecast = model.predict(future)
-forecast = forecast.tail(horizon)
-hist = ts.rename(columns={"ds": "Date", "y": "Value"})
+        future = model.make_future_dataframe(periods=horizon, freq=freq_key)      
+        forecast = model.predict(future)
+        forecast = forecast.tail(horizon)
+        hist = ts.rename(columns={"ds": "Date", "y": "Value"})
         fcast = pd.DataFrame({
             "Date": forecast["ds"],
             "Value": forecast["yhat"],
@@ -447,7 +445,10 @@ hist = ts.rename(columns={"ds": "Date", "y": "Value"})
         fit = model.fit()
         forecast = fit.forecast(horizon)
         last_date = ts["ds"].iloc[-1]
-        forecast_dates = [last_date + pd.Timedelta(days=30*(i+1)) for i in range(horizon)] if freq=='M' else [last_date + pd.Timedelta(days=7*(i+1)) for i in range(horizon)]
+        if freq_key == 'M':
+            forecast_dates = [last_date + pd.Timedelta(days=30*(i+1)) for i in range(horizon)]
+        else:
+            forecast_dates = [last_date + pd.Timedelta(days=7*(i+1)) for i in range(horizon)]
         hist = ts.rename(columns={"ds":"Date","y":"Value"})
         fcast = pd.DataFrame({"Date": forecast_dates, "Value": forecast.values,
                               "Lower": forecast.values*0.85, "Upper": forecast.values*1.15})
@@ -602,9 +603,9 @@ def login_section():
 
 # ========================== MEGA ADMIN DASHBOARD ==========================
 def mega_admin_dashboard():
-    sec_header("ADMIN", "Mega Dashboard", "Full System Control")
+    sec_header("ADMIN", "Mega Dashboard", "Full System Control & Analytics")
 
-    # Stats row
+    # System Overview Stats
     stats = get_stats()
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -618,8 +619,31 @@ def mega_admin_dashboard():
     with col5:
         st.metric("⚠️ Failed Logins", stats["total_failed_logins"])
 
-    # Charts
-    logs = get_login_logs(limit=200)
+    # Additional Program Details
+    st.markdown("---")
+    st.subheader("📌 NEXUS Analytics Pro - Program Details")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("**Core Features**")
+        st.write("- AI Profit Optimizer (Ensemble Regressor)")
+        st.write("- Demand Forecasting (Prophet/ETS)")
+        st.write("- Customer Segmentation (RFM + Clustering)")
+        st.write("- Market Basket Analysis (Apriori)")
+    with col2:
+        st.markdown("**Data Handling**")
+        st.write("- Supports CSV/Excel/JSON")
+        st.write("- Automatic encoding detection")
+        st.write("- Built-in sample dataset")
+        st.write("- Smart column type detection")
+    with col3:
+        st.markdown("**Security & Admin**")
+        st.write("- User authentication (bcrypt hashing)")
+        st.write("- Activity logging & audit trails")
+        st.write("- User management (delete, promote, reset)")
+        st.write("- Configurable upload limits")
+
+    # Login Activity Over Time
+    logs = get_login_logs(limit=500)
     if logs:
         df_logs = pd.DataFrame(logs, columns=["email", "success", "timestamp"])
         df_logs["timestamp"] = pd.to_datetime(df_logs["timestamp"])
@@ -636,7 +660,6 @@ def mega_admin_dashboard():
     users = get_all_users()
     if users:
         df_users = pd.DataFrame(users, columns=["ID", "Email", "Is Admin", "Created At", "Last Login"])
-        # Convert datetime for display
         df_users["Created At"] = pd.to_datetime(df_users["Created At"]).dt.strftime("%Y-%m-%d %H:%M")
         df_users["Last Login"] = pd.to_datetime(df_users["Last Login"]).dt.strftime("%Y-%m-%d %H:%M")
         st.dataframe(df_users, use_container_width=True)
@@ -667,7 +690,7 @@ def mega_admin_dashboard():
                 else:
                     st.error("Please enter a new password.")
 
-    # Add Admin by Email
+    # Add / Promote Admin
     st.markdown("#### ➕ Add / Promote Admin")
     col1, col2 = st.columns([3,1])
     with col1:
@@ -686,7 +709,7 @@ def mega_admin_dashboard():
 
     # System Logs
     st.subheader("📋 System Activity Log")
-    sys_logs = get_system_logs(limit=200)
+    sys_logs = get_system_logs(limit=500)
     if sys_logs:
         df_sys = pd.DataFrame(sys_logs, columns=["User", "Action", "Details", "Timestamp"])
         st.dataframe(df_sys, use_container_width=True)
@@ -716,6 +739,29 @@ maxUploadSize = {new_limit}
     db_size = os.path.getsize(DB_PATH) / (1024*1024) if os.path.exists(DB_PATH) else 0
     st.metric("Database Size", f"{db_size:.2f} MB")
     st.metric("Total Actions Logged", stats["total_actions"])
+    
+    # Additional Charts: Login Success Rate
+    if logs:
+        success_rate = (df_logs['success'].sum() / len(df_logs)) * 100
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = success_rate,
+            title = {'text': "Login Success Rate (%)"},
+            gauge = {'axis': {'range': [0, 100]},
+                     'bar': {'color': "#10b981"},
+                     'steps' : [
+                         {'range': [0, 50], 'color': "#fecaca"},
+                         {'range': [50, 80], 'color': "#fde68a"},
+                         {'range': [80, 100], 'color': "#bbf7d0"}],
+                     'threshold' : {'value': 90, 'line': {'color': "red", 'width': 4}}}
+        ))
+        fig_gauge.update_layout(height=300)
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+    # Top users by login activity
+    user_activity = df_logs.groupby('email').size().reset_index(name='login_count').sort_values('login_count', ascending=False).head(10)
+    fig_bar = px.bar(user_activity, x='email', y='login_count', title="Top 10 Most Active Users", color='login_count', color_continuous_scale='blues')
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 # ========================== MAIN APP (Analytics for all) ==========================
 def render_analytics_app():
@@ -851,7 +897,7 @@ def render_analytics_app():
         if sales_col != "—" and date_col != "—":
             horizon = st.slider("Forecast Horizon (days)", 30, 180, 90, key="fc_horizon")
             freq = st.selectbox("Aggregation", ["Monthly", "Weekly"], index=0, key="fc_freq")
-freq_key = 'ME' if freq == "Monthly" else 'W'
+            freq_key = 'ME' if freq == "Monthly" else 'W'
             if st.button("Run Forecast", key="fc_run"):
                 with st.spinner("Building forecast model..."):
                     result = build_forecast_prophet(df[date_col], df[sales_col], horizon, freq_key)
