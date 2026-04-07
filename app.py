@@ -161,7 +161,7 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM subscription_plans")
     if c.fetchone()[0] == 0:
         plans = [
-            ("Free", 0, 0, 1000, "Basic analytics, limited rows, no export, no forecasting, no market basket, no clustering", 1),
+            ("Free", 0, 0, 5000, "Basic analytics, limited rows, no export, no forecasting, no market basket, no clustering", 1),
             ("Pro", 19.99, 199.99, 50000, "Full analytics, forecasting, market basket, clustering, export, priority support", 1),
             ("Enterprise", 49.99, 499.99, 999999999, "Unlimited rows, all Pro features + custom models, dedicated support, API access", 1)
         ]
@@ -1207,7 +1207,7 @@ def login_section():
                     log_system_action(new_email, "register", "New user registered")
                 else:
                     st.error("⚠️ Email already exists.")
-        st.sidebar.info("💡 Guest mode: limited features (max 5000 rows).")
+        st.sidebar.info("💡 Guest mode: limited features (max 1000 rows).")
         return False
 
 # ========================== CHATBOT TAB ==========================
@@ -1647,7 +1647,7 @@ def render_analytics_app():
             if user_plan:
                 st.caption(f"📋 Plan: {user_plan['name']} (Max rows: {user_plan['max_rows']:,})")
             else:
-                st.caption("📋 Plan: Free (Max rows: 5000)")
+                st.caption("📋 Plan: Free (Max rows: 1000)")
         else:
             st.markdown("👤 **Guest Mode** (Limited to 1000 rows)")
         st.markdown("---")
