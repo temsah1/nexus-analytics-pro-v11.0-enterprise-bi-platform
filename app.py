@@ -51,7 +51,7 @@ except ImportError:
 
 # ========================== CONFIGURATION ==========================
 MAX_FILE_SIZE_MB = 1000
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024 * 5
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024  # Fix: removed extra *5
 GUEST_MAX_ROWS = 1000
 
 CONFIG_DIR = Path(".streamlit")
@@ -197,7 +197,6 @@ def init_db():
     for key in ['deepseek_api_key', 'groq_api_key', 'custom_ai_url', 'custom_ai_api_key', 'custom_ai_model']:
         c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, '')", (key,))
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('ai_provider', 'deepseek')")
-    c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_model', 'gpt-3.5-turbo')")
     c.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_ai_enabled', '0')")
     
     conn.commit()
@@ -1418,7 +1417,7 @@ def right_login_panel():
             success, is_admin = verify_password(email, pwd)
             log_login_attempt(email, success)
             if success:
-                st.session_state.update({"logged_in": True, "user_email": email, "is_admin": is_admin})
+                st.session_state.update({"logged_in": True, "user_email": email, "is_admin": is_admin, "admin_mode": False})
                 log_system_action(email, "login")
                 st.rerun()
             else:
@@ -1446,7 +1445,7 @@ def right_login_panel():
     </div>
     """, unsafe_allow_html=True)
 
-# ========================== ENHANCED CHATBOT TAB (WITH IMPROVED UI) ==========================
+# ========================== ENHANCED CHATBOT TAB ==========================
 def chatbot_tab():
     deepseek_key = get_setting("deepseek_api_key")
     groq_key = get_setting("groq_api_key")
@@ -1456,7 +1455,6 @@ def chatbot_tab():
     custom_model = get_setting("custom_ai_model")
     custom_enabled = get_setting("custom_ai_enabled") == "1"
 
-    # Header بدون النص "Powered by ..."
     st.markdown("""
     <div style="text-align:center; margin-bottom:2rem;">
         <div style="width:80px;height:80px;background:linear-gradient(135deg,#7c3aed,#06b6d4);
@@ -1473,14 +1471,12 @@ def chatbot_tab():
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [{"role": "assistant", "content": "مرحباً! أنا NEXUS AI 🚀\n\nكيف يمكنني مساعدتك اليوم؟ يمكنك سؤالي عن بياناتك، أو ميزات المنصة، أو أي استفسار تحليلي."}]
 
-    # زر مسح المحادثة
     col1, col2, col3 = st.columns([6, 1, 1])
     with col2:
         if st.button("🗑️ مسح", key="clear_chat", help="مسح المحادثة"):
             st.session_state.chat_messages = [{"role": "assistant", "content": "تم مسح المحادثة! كيف يمكنني مساعدتك؟"}]
             st.rerun()
 
-    # عرض المحادثة بتصميم محسن
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for msg in st.session_state.chat_messages:
         role_class = "user" if msg["role"] == "user" else "assistant"
@@ -1494,15 +1490,12 @@ def chatbot_tab():
         """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # منطقة إدخال النص المخصصة
     prompt = st.chat_input("اسألني عن بياناتك أو المنصة...")
     
     if prompt:
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        # إعادة عرض المحادثة مع الرسالة الجديدة
         st.rerun()
 
-    # معالجة الرد إذا كانت آخر رسالة من المستخدم
     if st.session_state.chat_messages and st.session_state.chat_messages[-1]["role"] == "user":
         last_user_msg = st.session_state.chat_messages[-1]["content"]
         has_key = (provider == "deepseek" and deepseek_key) or \
@@ -1515,7 +1508,6 @@ def chatbot_tab():
             st.rerun()
         else:
             with st.spinner(""):
-                # مؤشر الكتابة المخصص
                 typing_placeholder = st.empty()
                 typing_placeholder.markdown("""
                 <div class="typing-indicator">
@@ -1542,6 +1534,11 @@ def mega_admin_dashboard():
     if not st.session_state.get("is_admin", False):
         st.error("Access denied. Admins only.")
         return
+
+    # Back button to analytics
+    if st.sidebar.button("← Back to Analytics"):
+        st.session_state.admin_mode = False
+        st.rerun()
 
     st.markdown("""
     <div class="admin-hero">
@@ -1799,6 +1796,11 @@ def render_analytics_app():
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            # Admin button if admin
+            if st.session_state.get("is_admin", False):
+                if st.button("🛡️ Admin Dashboard", use_container_width=True):
+                    st.session_state.admin_mode = True
+                    st.rerun()
         else:
             st.markdown("""
             <div style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);
@@ -1808,8 +1810,9 @@ def render_analytics_app():
             </div>
             """, unsafe_allow_html=True)
 
-        st.markdown("### 📂 Data Source")
-        source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
+        # DATA SOURCE as expander (arrow)
+        with st.expander("📂 DATA SOURCE", expanded=True):
+            source = st.radio("", ["📦 Built-in Dataset","📂 Upload File"], label_visibility="collapsed", key="data_source")
 
         if source == "📂 Upload File":
             uploaded = st.file_uploader(f"CSV / Excel / JSON", type=["csv","xlsx","xls","json"], key="file_upload")
@@ -2229,15 +2232,18 @@ def render_analytics_app():
 # ========================== MAIN ==========================
 def main():
     if "logged_in" not in st.session_state:
-        st.session_state.update({"logged_in": False, "user_email": None, "is_admin": False})
+        st.session_state.update({"logged_in": False, "user_email": None, "is_admin": False, "admin_mode": False})
 
-    if st.session_state.get("logged_in", False):
+    # Admin mode overrides analytics
+    if st.session_state.get("admin_mode", False) and st.session_state.get("is_admin", False):
+        mega_admin_dashboard()
+    elif st.session_state.get("logged_in", False):
         with st.sidebar:
             st.markdown("### 🔐 الحساب")
             role_label = "👑 مدير" if st.session_state.get("is_admin") else "👤 مستخدم"
             st.success(f"{role_label}: {st.session_state['user_email']}")
             if st.button("تسجيل الخروج", key="logout_btn"):
-                for k in ["logged_in", "user_email", "is_admin"]:
+                for k in ["logged_in", "user_email", "is_admin", "admin_mode"]:
                     st.session_state[k] = False if k != "user_email" else None
                 st.rerun()
         render_analytics_app()
