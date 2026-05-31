@@ -1438,22 +1438,30 @@ def init_db():
     ]:
         c.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES(?,?)", (k, v))
 
-    # Admin user
+    # ── Admin user ─────────────────────────────────────────────────
     admin_email, admin_pass = "kareemeltemsah7@gmail.com", "temsah1!"
     hashed = hashlib.sha256(admin_pass.encode()).hexdigest()
+
     c.execute("SELECT id FROM users WHERE email=?", (admin_email,))
-    if c.fetchone():
-        c.execute("UPDATE users SET password_hash=?,is_admin=1 WHERE email=?", (hashed, admin_email))
+    existing_admin = c.fetchone()
+    if existing_admin:
+        c.execute("UPDATE users SET password_hash=?,is_admin=1 WHERE email=?",
+                  (hashed, admin_email))
     else:
         c.execute("INSERT INTO users(email,password_hash,is_admin,full_name) VALUES(?,?,1,'Admin')",
                   (admin_email, hashed))
         uid = c.lastrowid
         c.execute("SELECT id FROM subscription_plans WHERE name='Enterprise'")
         ep = c.fetchone()
+        if not ep:
+            c.execute("SELECT id FROM subscription_plans ORDER BY id DESC LIMIT 1")
+            ep = c.fetchone()
         if ep:
-            c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active)
+            plan_id = ep[0]  # always use index — no row_factory in init_db
+            c.execute("""INSERT INTO user_subscriptions
+                         (user_id,plan_id,start_date,end_date,is_active)
                          VALUES(?,?,?,?,1)""",
-                      (uid, ep["id"] if hasattr(ep, "__getitem__") else ep[0],
+                      (uid, plan_id,
                        datetime.now(), datetime.now() + timedelta(days=36500)))
 
     conn.commit()
