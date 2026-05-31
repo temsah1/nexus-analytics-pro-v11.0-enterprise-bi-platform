@@ -1232,9 +1232,21 @@ def make_gauge(value, title, max_val=100, color="#00d4ff"):
 # ═══════════════════════════════════════════════════════════════════════
 #  DATABASE LAYER
 # ═══════════════════════════════════════════════════════════════════════
+def _safe_add_column(c, table, col, col_def):
+    """Add a column to a table only if it doesn't already exist."""
+    c.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in c.fetchall()}
+    if col not in existing:
+        try:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
+        except Exception:
+            pass
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    # ── Core tables ────────────────────────────────────────────────
     c.executescript("""
     CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1265,18 +1277,18 @@ def init_db():
     CREATE TABLE IF NOT EXISTS subscription_plans(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
-        tier INTEGER DEFAULT 1,
-        price_monthly REAL, price_yearly REAL,
-        max_rows INTEGER, max_connectors INTEGER DEFAULT 0,
-        max_dashboards INTEGER DEFAULT 3,
-        features TEXT, is_active INTEGER DEFAULT 1);
+        price_monthly REAL,
+        price_yearly REAL,
+        max_rows INTEGER,
+        features TEXT,
+        is_active INTEGER DEFAULT 1);
 
     CREATE TABLE IF NOT EXISTS user_subscriptions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL, plan_id INTEGER NOT NULL,
         start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         end_date TIMESTAMP, is_active INTEGER DEFAULT 1,
-        payment_method TEXT, coupon_code TEXT DEFAULT '',
+        payment_method TEXT,
         FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(plan_id) REFERENCES subscription_plans(id));
 
@@ -1358,22 +1370,57 @@ def init_db():
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     """)
 
-    # Seed plans
+    # ── Safe migrations — add new columns to existing tables ───────
+    _safe_add_column(c, "subscription_plans", "tier",           "INTEGER DEFAULT 1")
+    _safe_add_column(c, "subscription_plans", "max_connectors", "INTEGER DEFAULT 0")
+    _safe_add_column(c, "subscription_plans", "max_dashboards", "INTEGER DEFAULT 3")
+    _safe_add_column(c, "user_subscriptions", "coupon_code",    "TEXT DEFAULT ''")
+    _safe_add_column(c, "users",              "full_name",      "TEXT DEFAULT ''")
+    _safe_add_column(c, "users",              "avatar_color",   "TEXT DEFAULT '#00d4ff'")
+    _safe_add_column(c, "users",              "timezone",       "TEXT DEFAULT 'UTC'")
+    _safe_add_column(c, "users",              "preferences",    "TEXT DEFAULT '{}'")
+    _safe_add_column(c, "users",              "last_ip",        "TEXT DEFAULT ''")
+    _safe_add_column(c, "login_logs",         "user_agent",     "TEXT DEFAULT ''")
+    _safe_add_column(c, "login_logs",         "ip_address",     "TEXT DEFAULT ''")
+    _safe_add_column(c, "system_logs",        "module",         "TEXT DEFAULT 'core'")
+    conn.commit()
+
+    # ── Update tiers for existing plans (safe) ─────────────────────
+    tier_map = {"Starter": 1, "Free": 1, "Pro": 2, "Professional": 2,
+                "Business": 3, "Enterprise": 4}
+    for name, tier in tier_map.items():
+        c.execute("UPDATE subscription_plans SET tier=? WHERE name=? AND (tier IS NULL OR tier=0)",
+                  (tier, name))
+
+    # ── Seed plans (only if table is empty) ────────────────────────
     c.execute("SELECT COUNT(*) FROM subscription_plans")
     if c.fetchone()[0] == 0:
         plans = [
-            ("Starter",    1,  0,      0,       5_000,   0,  3,
+            ("Starter",      1,  0,      0,        5_000,
              "Basic analytics · 5K rows · 3 Dashboards · Community support", 1),
-            ("Professional", 2, 29.99, 299.99, 100_000,  2, 10,
+            ("Professional", 2,  29.99,  299.99,  100_000,
              "Full analytics · Forecasting · Clustering · Basket · Export · 2 Connectors · Priority support", 1),
-            ("Business",   3, 69.99,  699.99, 500_000,   5, 30,
+            ("Business",     3,  69.99,  699.99,  500_000,
              "All Professional + 5 Connectors · 30 Dashboards · Alerts · ML Experiments · SLA 99.9%", 1),
-            ("Enterprise", 4, 149.99, 1499.99, 999_999_999, 99, 999,
+            ("Enterprise",   4, 149.99, 1499.99, 999_999_999,
              "Unlimited everything · Custom ML · Dedicated support · API access · White-label · SSO", 1),
         ]
         c.executemany("""INSERT INTO subscription_plans
-            (name,tier,price_monthly,price_yearly,max_rows,max_connectors,max_dashboards,features,is_active)
-            VALUES(?,?,?,?,?,?,?,?,?)""", plans)
+            (name,tier,price_monthly,price_yearly,max_rows,features,is_active)
+            VALUES(?,?,?,?,?,?,?)""", plans)
+
+    # ── Ensure new columns are filled for existing rows ────────────
+    c.execute("UPDATE subscription_plans SET max_connectors=0  WHERE max_connectors IS NULL")
+    c.execute("UPDATE subscription_plans SET max_dashboards=3  WHERE max_dashboards IS NULL")
+    c.execute("UPDATE subscription_plans SET tier=1            WHERE tier IS NULL OR tier=0")
+    # Set sensible max_connectors for known tiers
+    c.execute("UPDATE subscription_plans SET max_connectors=2  WHERE name='Professional' AND max_connectors<2")
+    c.execute("UPDATE subscription_plans SET max_connectors=5  WHERE name='Business'    AND max_connectors<5")
+    c.execute("UPDATE subscription_plans SET max_connectors=99 WHERE name='Enterprise'  AND max_connectors<99")
+    c.execute("UPDATE subscription_plans SET max_connectors=2  WHERE name='Pro'         AND max_connectors<2")
+    c.execute("UPDATE subscription_plans SET max_dashboards=10 WHERE name='Professional'AND max_dashboards<10")
+    c.execute("UPDATE subscription_plans SET max_dashboards=30 WHERE name='Business'    AND max_dashboards<30")
+    c.execute("UPDATE subscription_plans SET max_dashboards=999 WHERE name='Enterprise' AND max_dashboards<999")
 
     # Settings
     for k, v in [
@@ -1500,24 +1547,44 @@ def get_user_by_email(email):
 def get_user_subscription(user_id):
     with get_db() as conn:
         c = conn.cursor()
-        c.execute("""SELECT sp.name,sp.tier,sp.max_rows,sp.max_connectors,sp.max_dashboards,
-                            sp.features,us.start_date,us.end_date,us.is_active,sp.id plan_id
+        c.execute("""SELECT sp.name,
+                            COALESCE(sp.tier,1) tier,
+                            sp.max_rows,
+                            COALESCE(sp.max_connectors,0) max_connectors,
+                            COALESCE(sp.max_dashboards,3) max_dashboards,
+                            sp.features,
+                            us.start_date,us.end_date,us.is_active,sp.id plan_id
                      FROM user_subscriptions us
                      JOIN subscription_plans sp ON us.plan_id=sp.id
                      WHERE us.user_id=? AND us.is_active=1
                      ORDER BY us.start_date DESC LIMIT 1""", (user_id,))
         row = c.fetchone()
         if row: return dict(row)
-        c.execute("SELECT id,name,tier,max_rows,max_connectors,max_dashboards,features FROM subscription_plans WHERE name='Starter'")
+        c.execute("""SELECT id,name,
+                            COALESCE(tier,1) tier,
+                            max_rows,
+                            COALESCE(max_connectors,0) max_connectors,
+                            COALESCE(max_dashboards,3) max_dashboards,
+                            features
+                     FROM subscription_plans WHERE name='Starter'""")
         fp = c.fetchone()
+        if not fp:
+            c.execute("SELECT id,name,max_rows,features FROM subscription_plans ORDER BY id LIMIT 1")
+            fp = c.fetchone()
         if fp:
             c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active)
                          VALUES(?,?,?,?,1)""",
                       (user_id, fp["id"], datetime.now(), datetime.now() + timedelta(days=36500)))
             conn.commit()
-            return {"name": fp["name"], "tier": fp["tier"], "max_rows": fp["max_rows"],
-                    "max_connectors": fp["max_connectors"], "max_dashboards": fp["max_dashboards"],
-                    "features": fp["features"], "plan_id": fp["id"]}
+            return {
+                "name":           fp["name"],
+                "tier":           fp["tier"]           if "tier"           in fp.keys() else 1,
+                "max_rows":       fp["max_rows"],
+                "max_connectors": fp["max_connectors"] if "max_connectors" in fp.keys() else 0,
+                "max_dashboards": fp["max_dashboards"] if "max_dashboards" in fp.keys() else 3,
+                "features":       fp["features"],
+                "plan_id":        fp["id"],
+            }
         return None
 
 def get_all_users():
@@ -1546,13 +1613,26 @@ def reset_password(uid, new_pwd):
 def get_available_plans():
     with get_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT * FROM subscription_plans WHERE is_active=1 ORDER BY tier")
+        c.execute("""SELECT id, name,
+                            COALESCE(tier,1) tier,
+                            price_monthly, price_yearly, max_rows,
+                            COALESCE(max_connectors,0) max_connectors,
+                            COALESCE(max_dashboards,3) max_dashboards,
+                            features, is_active
+                     FROM subscription_plans WHERE is_active=1
+                     ORDER BY COALESCE(tier,1)""")
         return c.fetchall()
 
 def get_all_plans():
     with get_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT * FROM subscription_plans ORDER BY tier")
+        c.execute("""SELECT id, name,
+                            COALESCE(tier,1) tier,
+                            price_monthly, price_yearly, max_rows,
+                            COALESCE(max_connectors,0) max_connectors,
+                            COALESCE(max_dashboards,3) max_dashboards,
+                            features, is_active
+                     FROM subscription_plans ORDER BY COALESCE(tier,1)""")
         return c.fetchall()
 
 def upgrade_subscription(user_id, plan_id, months=1):
@@ -1577,13 +1657,18 @@ def get_all_subscriptions():
         return [dict(r) for r in c.fetchall()]
 
 def update_plan(pid, pm, py, rows, connectors, dashboards, feats):
-    with get_db() as c:
-        c.execute("""UPDATE subscription_plans
-                     SET price_monthly=?,price_yearly=?,max_rows=?,
-                         max_connectors=?,max_dashboards=?,features=?
-                     WHERE id=?""",
-                  (pm, py, rows, connectors, dashboards, feats, pid))
-        c.commit()
+    with get_db() as conn:
+        c = conn.cursor()
+        # Use safe column updates — skip if column doesn't exist
+        c.execute("UPDATE subscription_plans SET price_monthly=?,price_yearly=?,max_rows=?,features=? WHERE id=?",
+                  (pm, py, rows, feats, pid))
+        try:
+            c.execute("UPDATE subscription_plans SET max_connectors=? WHERE id=?", (connectors, pid))
+        except Exception: pass
+        try:
+            c.execute("UPDATE subscription_plans SET max_dashboards=? WHERE id=?", (dashboards, pid))
+        except Exception: pass
+        conn.commit()
 
 def extend_sub(uid, months=1):
     with get_db() as conn:
