@@ -1500,9 +1500,10 @@ def register_user(email, pwd, full_name=""):
             c.execute("SELECT id FROM subscription_plans WHERE name='Starter'")
             fp = c.fetchone()
             if fp:
+                fp_id = fp["id"] if hasattr(fp, "keys") else fp[0]
                 c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active)
                              VALUES(?,?,?,?,1)""",
-                          (uid, fp["id"], datetime.now(), datetime.now() + timedelta(days=36500)))
+                          (uid, fp_id, datetime.now(), datetime.now() + timedelta(days=36500)))
             conn.commit()
             return True
         except sqlite3.IntegrityError: return False
@@ -1580,18 +1581,19 @@ def get_user_subscription(user_id):
             c.execute("SELECT id,name,max_rows,features FROM subscription_plans ORDER BY id LIMIT 1")
             fp = c.fetchone()
         if fp:
+            fp_dict = dict(fp)
             c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active)
                          VALUES(?,?,?,?,1)""",
-                      (user_id, fp["id"], datetime.now(), datetime.now() + timedelta(days=36500)))
+                      (user_id, fp_dict["id"], datetime.now(), datetime.now() + timedelta(days=36500)))
             conn.commit()
             return {
-                "name":           fp["name"],
-                "tier":           fp["tier"]           if "tier"           in fp.keys() else 1,
-                "max_rows":       fp["max_rows"],
-                "max_connectors": fp["max_connectors"] if "max_connectors" in fp.keys() else 0,
-                "max_dashboards": fp["max_dashboards"] if "max_dashboards" in fp.keys() else 3,
-                "features":       fp["features"],
-                "plan_id":        fp["id"],
+                "name":           fp_dict.get("name", "Starter"),
+                "tier":           fp_dict.get("tier", 1),
+                "max_rows":       fp_dict.get("max_rows", 5000),
+                "max_connectors": fp_dict.get("max_connectors", 0),
+                "max_dashboards": fp_dict.get("max_dashboards", 3),
+                "features":       fp_dict.get("features", ""),
+                "plan_id":        fp_dict.get("id", 1),
             }
         return None
 
@@ -1646,6 +1648,8 @@ def get_all_plans():
 def upgrade_subscription(user_id, plan_id, months=1):
     with get_db() as conn:
         c = conn.cursor()
+        try: plan_id = int(plan_id)
+        except (TypeError, ValueError): return
         c.execute("UPDATE user_subscriptions SET is_active=0 WHERE user_id=?", (user_id,))
         end = datetime.now() + timedelta(days=30*months)
         c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active,payment_method)
@@ -1656,7 +1660,8 @@ def upgrade_subscription(user_id, plan_id, months=1):
 def get_all_subscriptions():
     with get_db() as conn:
         c = conn.cursor()
-        c.execute("""SELECT u.id,u.email,sp.name plan_name,sp.tier,
+        c.execute("""SELECT u.id,u.email,sp.name plan_name,
+                            COALESCE(sp.tier,1) tier,
                             us.start_date,us.end_date,us.is_active
                      FROM user_subscriptions us
                      JOIN users u ON us.user_id=u.id
@@ -1697,10 +1702,14 @@ def cancel_sub(uid):
         c.execute("UPDATE user_subscriptions SET is_active=0 WHERE user_id=? AND is_active=1", (uid,))
         c.execute("SELECT id FROM subscription_plans WHERE name='Starter'")
         fp = c.fetchone()
+        if not fp:
+            c.execute("SELECT id FROM subscription_plans ORDER BY id LIMIT 1")
+            fp = c.fetchone()
         if fp:
+            fp_id = fp["id"] if hasattr(fp, "keys") else fp[0]
             c.execute("""INSERT INTO user_subscriptions(user_id,plan_id,start_date,end_date,is_active)
                          VALUES(?,?,?,?,1)""",
-                      (uid, fp["id"], datetime.now(), datetime.now() + timedelta(days=36500)))
+                      (uid, fp_id, datetime.now(), datetime.now() + timedelta(days=36500)))
         conn.commit()
 
 # ── STATS ─────────────────────────────────────────────────────────────
@@ -3130,16 +3139,18 @@ def admin_dashboard():
     with atabs[4]:
         sec_head("PLANS","Plan Configuration","Edit pricing & features")
         for plan in get_all_plans():
-            with st.expander(f"✏️ {plan['name']} (Tier {plan['tier']})"):
+            p = dict(plan)
+            tier_lbl = p.get('tier', 1)
+            with st.expander(f"✏️ {p['name']} (Tier {tier_lbl})"):
                 c1,c2,c3,c4,c5 = st.columns(5)
-                with c1: pm    = st.number_input("$/mo",value=float(plan['price_monthly']),key=f"pm{plan['id']}")
-                with c2: py    = st.number_input("$/yr",value=float(plan['price_yearly']),key=f"py{plan['id']}")
-                with c3: rows_ = st.number_input("Max Rows",value=int(plan['max_rows']),step=5000,key=f"rw{plan['id']}")
-                with c4: conns_= st.number_input("Max Connectors",value=int(plan.get('max_connectors',0)),step=1,key=f"cn{plan['id']}")
-                with c5: dash_ = st.number_input("Dashboards",value=int(plan.get('max_dashboards',3)),step=1,key=f"db{plan['id']}")
-                ft = st.text_area("Features",value=plan['features'],key=f"ft{plan['id']}")
-                if st.button(f"💾 Save {plan['name']}",key=f"sv{plan['id']}"):
-                    update_plan(plan['id'],pm,py,rows_,conns_,dash_,ft)
+                with c1: pm    = st.number_input("$/mo",value=float(p.get('price_monthly',0)),key=f"pm{p['id']}")
+                with c2: py    = st.number_input("$/yr",value=float(p.get('price_yearly',0)),key=f"py{p['id']}")
+                with c3: rows_ = st.number_input("Max Rows",value=int(p.get('max_rows',5000)),step=5000,key=f"rw{p['id']}")
+                with c4: conns_= st.number_input("Max Connectors",value=int(p.get('max_connectors',0)),step=1,key=f"cn{p['id']}")
+                with c5: dash_ = st.number_input("Dashboards",value=int(p.get('max_dashboards',3)),step=1,key=f"db{p['id']}")
+                ft = st.text_area("Features",value=p.get('features',''),key=f"ft{p['id']}")
+                if st.button(f"💾 Save {p['name']}",key=f"sv{p['id']}"):
+                    update_plan(p['id'],pm,py,rows_,conns_,dash_,ft)
                     st.success("Plan updated!"); st.rerun()
 
     # ── Settings ─────────────────────────────────────────────────────
@@ -3306,50 +3317,61 @@ def plans_tab():
     sub = get_user_subscription(user["id"])
 
     if sub:
+        sub_d = dict(sub) if not isinstance(sub, dict) else sub
         st.markdown(f"""<div class="nx-panel" style="margin-bottom:18px;border-left:3px solid var(--cyan);">
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--t3);letter-spacing:2px;text-transform:uppercase;">Current Plan</div>
-            <strong style="font-family:var(--font-head);font-size:1.1rem;color:var(--cyan);">{sub['name'].upper()}</strong>
-            <span class="nx-chip cyan">{sub['max_rows']:,} rows</span>
-            <span class="nx-chip">{sub.get('max_connectors',0)} connectors</span>
-            <span class="nx-chip">{sub.get('max_dashboards',3)} dashboards</span>
+            <strong style="font-family:var(--font-head);font-size:1.1rem;color:var(--cyan);">{sub_d.get('name','Free').upper()}</strong>
+            <span class="nx-chip cyan">{sub_d.get('max_rows',5000):,} rows</span>
+            <span class="nx-chip">{sub_d.get('max_connectors',0)} connectors</span>
+            <span class="nx-chip">{sub_d.get('max_dashboards',3)} dashboards</span>
           </div>
         </div>""", unsafe_allow_html=True)
 
     plans = get_available_plans()
+    if not plans:
+        st.info("No plans available."); return
     cols  = st.columns(len(plans))
+    sub_d = dict(sub) if sub and not isinstance(sub, dict) else (sub or {})
     for idx, plan in enumerate(plans):
+        plan = dict(plan)
         with cols[idx]:
-            is_curr    = sub and sub['name'] == plan['name']
-            is_feat    = plan['name'] == 'Professional'
+            is_curr    = bool(sub_d) and sub_d.get('name') == plan.get('name')
+            is_feat    = plan.get('name') == 'Professional'
             cls        = "plan-card featured" if is_feat else "plan-card"
-            feats_list = [f.strip() for f in plan['features'].split('·') if f.strip()]
+            feats_list = [f.strip() for f in plan.get('features','').split('·') if f.strip()]
             feats_html = "".join([f'<div class="plan-feat">{f}</div>' for f in feats_list[:6]])
-            yr_save    = int((1 - plan['price_yearly']/(plan['price_monthly']*12))*100) \
-                         if plan['price_monthly'] > 0 else 0
+            # Extract all values safely before use
+            p_id       = plan.get('id', idx + 1)
+            p_name     = plan.get('name', 'Plan')
+            p_monthly  = float(plan.get('price_monthly', 0) or 0)
+            p_yearly   = float(plan.get('price_yearly', 0) or 0)
+            p_rows     = int(plan.get('max_rows', 0) or 0)
+            p_conn     = int(plan.get('max_connectors', 0) or 0)
+            yr_save    = int((1 - p_yearly / (p_monthly * 12)) * 100) if p_monthly > 0 else 0
             popular    = '<div class="plan-popular">★ POPULAR</div>' if is_feat else ''
-            max_rows_fmt = "Unlimited" if plan['max_rows'] > 900000000 else f"{plan['max_rows']:,}"
+            max_rows_fmt = "Unlimited" if p_rows > 900000000 else f"{p_rows:,}"
 
             st.markdown(f"""<div class="{cls}">
               {popular}
-              <div class="plan-name-lbl">{plan['name']}</div>
-              <div class="plan-price">${plan['price_monthly']:.2f}<span>/mo</span></div>
+              <div class="plan-name-lbl">{p_name}</div>
+              <div class="plan-price">${p_monthly:.2f}<span>/mo</span></div>
               <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--t3);margin-bottom:14px;">
-                ${plan['price_yearly']:.0f}/yr · save {yr_save}%
+                ${p_yearly:.0f}/yr · save {yr_save}%
               </div>
               <div style="text-align:left;margin:12px 0;">{feats_html}</div>
               <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--t3);margin-top:8px;">
-                📊 {max_rows_fmt} rows &nbsp;|&nbsp; 🔌 {plan.get('max_connectors',0)} connectors
+                📊 {max_rows_fmt} rows &nbsp;|&nbsp; 🔌 {p_conn} connectors
               </div>
             </div>""", unsafe_allow_html=True)
 
             if is_curr:
-                st.button("✅ Active Plan", disabled=True, key=f"cur_{plan['id']}", use_container_width=True)
+                st.button("✅ Active Plan", disabled=True, key=f"cur_{p_id}", use_container_width=True)
             else:
-                if st.button(f"→ Subscribe {plan['name']}", key=f"sub_{plan['id']}", use_container_width=True):
-                    upgrade_subscription(user["id"], plan["id"])
-                    st.success(f"✅ Subscribed to {plan['name']}!")
-                    log_action(st.session_state["user_email"], "subscribe", plan["name"], module="billing")
+                if st.button(f"→ Subscribe {p_name}", key=f"sub_{p_id}", use_container_width=True):
+                    upgrade_subscription(user["id"], p_id)
+                    st.success(f"✅ Subscribed to {p_name}!")
+                    log_action(st.session_state["user_email"], "subscribe", p_name, module="billing")
                     st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3375,7 +3397,7 @@ def analytics_app():
 
     plan_name    = user_plan["name"] if user_plan else "Starter"
     max_rows     = user_plan["max_rows"] if user_plan else GUEST_MAX_ROWS
-    max_connectors = user_plan.get("max_connectors", 0) if user_plan else 0
+    max_connectors = (dict(user_plan).get("max_connectors", 0) if user_plan else 0)
     st.session_state["_plan"]           = plan_name
     st.session_state["_max_connectors"] = max_connectors
     is_pro = plan_name in ["Professional","Business","Enterprise"]
